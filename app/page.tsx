@@ -10,6 +10,8 @@ import {
   Boxes,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   CookingPot,
@@ -30,10 +32,19 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 type View = "dashboard" | "kasir" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
 type CartItem = { id: number; name: string; cut?: Cut; price: number; qty: number };
+type BusinessProfile = { name: string; tagline: string; primaryColor: string; outlet: string };
+
+const defaultBusiness: BusinessProfile = {
+  name: "Sabana",
+  tagline: "Operation Hub",
+  primaryColor: "#a80f16",
+  outlet: "Outlet Utama",
+};
 
 const money = (value: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
@@ -51,11 +62,11 @@ const menuItems = [
   { id: 8, name: "Kulit Crispy", note: "1 pouch", price: 9000, icon: "✨", color: "sun" },
 ];
 
-function Brand() {
+function Brand({ business }: { business: BusinessProfile }) {
   return (
     <div className="brand">
       <div className="brand-mark"><Flame size={22} strokeWidth={2.6} /></div>
-      <div><strong>SABANA</strong><span>OPERATION HUB</span></div>
+      <div><strong>{business.name.toUpperCase()}</strong><span>{business.tagline.toUpperCase()}</span></div>
     </div>
   );
 }
@@ -74,10 +85,11 @@ const secondaryNav = [
   { id: "pengaturan", label: "Pengaturan", icon: Settings },
 ] as const;
 
-function Sidebar({ view, setView }: { view: View; setView: (view: View) => void }) {
+function Sidebar({ view, setView, business, collapsed, setCollapsed }: { view: View; setView: (view: View) => void; business: BusinessProfile; collapsed: boolean; setCollapsed: (value:boolean)=>void }) {
   return (
-    <aside className="sidebar">
-      <Brand />
+    <aside className={`sidebar ${collapsed?"collapsed":""}`}>
+      <Brand business={business} />
+      <button className="collapse-sidebar" onClick={()=>setCollapsed(!collapsed)} title={collapsed?"Buka sidebar":"Tutup sidebar"}>{collapsed?<ChevronRight/>:<ChevronLeft/>}</button>
       <nav>
         <span className="nav-caption">OPERASIONAL</span>
         {nav.map((item) => (
@@ -157,12 +169,12 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
             </div>
           </div>
           <div className="panel fryer-panel">
-            <div className="panel-head"><div><h2>Kondisi deep fryer</h2><p>Siklus minyak aktif</p></div><span className="status warning">Perlu diperiksa</span></div>
+            <div className="panel-head"><div><h2>Kondisi deep fryer</h2><p>Belum ada siklus minyak aktif</p></div><span className="status neutral">Belum dimulai</span></div>
             <div className="fryer-main">
-              <div className="gauge"><span>164</span><small>/200 pak</small></div>
+              <div className="gauge empty"><span>0</span><small>/200 pak</small></div>
               <div className="fryer-stats">
-                <div><span>Umur minyak</span><strong>15 hari</strong><small>Maks. 21 hari</small></div>
-                <div><span>Top-up</span><strong>6 / 10 pak</strong><small>4 pak lagi</small></div>
+                <div><span>Umur minyak</span><strong>0 hari</strong><small>Diisi saat mulai</small></div>
+                <div><span>Top-up</span><strong>0 / 10 pak</strong><small>Belum dihitung</small></div>
               </div>
             </div>
             <button className="outline-wide" onClick={() => setView("produksi")}>Periksa kondisi minyak <ArrowRight size={16} /></button>
@@ -220,6 +232,7 @@ function POS() {
   const [paid, setPaid] = useState(false);
   const [payment, setPayment] = useState(false);
   const [channel, setChannel] = useState("Takeaway");
+  const [onlineProvider, setOnlineProvider] = useState("GoFood");
   const [cash, setCash] = useState("");
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
   const addItem = (item: (typeof menuItems)[number], cut?: Cut) => {
@@ -255,6 +268,7 @@ function POS() {
         <aside className="cart">
           <div className="cart-head"><div><h2>Pesanan #A-087</h2><p><ShoppingBag size={14}/> {channel}</p></div><button><Trash2 size={18}/></button></div>
           <div className="order-channel">{["Takeaway","Dine in","Online food"].map(item=><button key={item} className={channel===item?"active":""} onClick={()=>setChannel(item)}>{item}</button>)}</div>
+          {channel==="Online food" && <div className="online-provider">{["GoFood","GrabFood","ShopeeFood"].map(item=><button key={item} className={onlineProvider===item?"active":""} onClick={()=>setOnlineProvider(item)}>{item}</button>)}</div>}
           <div className="customer"><span>Nama pelanggan</span><button>+ Tambahkan nama</button></div>
           <div className="cart-list">
             {cart.map(item => (
@@ -277,7 +291,7 @@ function POS() {
       {payment && <Modal close={()=>setPayment(false)}>
         <div className="modal-head"><div><span className="modal-icon"><Banknote/></span><div><h2>Pembayaran tunai</h2><p>Total pesanan #A-087</p></div></div><button onClick={()=>setPayment(false)}><X/></button></div>
         <div className="payment-total"><span>Total tagihan</span><strong>{money(subtotal)}</strong></div>
-        <div className="cash-received"><span>Uang diterima</span><strong>{cash?money(Number(cash)):"Rp 0"}</strong></div>
+        <label className="cash-received"><span>Uang diterima</span><div><small>Rp</small><input inputMode="numeric" autoFocus value={cash} onChange={e=>setCash(e.target.value.replace(/\D/g,""))} placeholder="0"/></div></label>
         <div className="cash-presets">{[subtotal,50000,100000].filter((v,i,a)=>a.indexOf(v)===i).map(v=><button key={v} onClick={()=>setCash(String(v))}>{v===subtotal?"Uang pas":money(v).replace(",00","")}</button>)}</div>
         <div className="numpad">
           {[1,2,3,4,5,6,7,8,9,"00",0,"⌫"].map(key=><button key={key} onClick={()=>setCash(old=>key==="⌫"?old.slice(0,-1):`${old}${key}`.replace(/^0+/,""))}>{key}</button>)}
@@ -303,6 +317,8 @@ function Production() {
   ]);
   const [recipeModal, setRecipeModal] = useState(false);
   const [recipeName, setRecipeName] = useState("");
+  const [oilActive,setOilActive]=useState(false);
+  const [oilModal,setOilModal]=useState(false);
   return (
     <>
       <Topbar title="Produksi" subtitle="Kelola batch goreng dan kondisi deep fryer." />
@@ -326,11 +342,11 @@ function Production() {
             {recipes.map((item)=><div className="output-row editable" key={item.name}><span className="chicken-symbol">♨</span><div><strong>{item.name}</strong><small>Hasil per 1 pak ayam</small></div><b>{item.qty*packs} {item.unit}</b><button onClick={()=>setRecipes(r=>r.filter(x=>x.name!==item.name))}>×</button></div>)}
           </div>
           <div className="panel oil-cycle">
-            <div className="panel-head"><div><span className="eyebrow plain">DEEP FRYER 1</span><h2>Siklus minyak</h2></div><span className="status warning">Periksa</span></div>
-            <div className="oil-hero"><div className="oil-drop">💧</div><div><strong>164 <small>/ 200 pak</small></strong><span>15 hari sejak pengisian</span></div></div>
-            <div className="progress"><i style={{width:"82%"}}/></div>
-            <div className="oil-metrics"><div><span>Top-up berikutnya</span><strong>6 / 10 pak</strong></div><div><span>Batas usia</span><strong>21 hari</strong></div></div>
-            <div className="oil-actions"><button>Periksa minyak</button><button>Catat top-up</button></div>
+            <div className="panel-head"><div><span className="eyebrow plain">DEEP FRYER 1</span><h2>Siklus minyak</h2></div><span className={`status ${oilActive?"success":"neutral"}`}>{oilActive?"Aktif":"Belum dimulai"}</span></div>
+            <div className="oil-hero"><div className="oil-drop">💧</div><div><strong>0 <small>/ 200 pak</small></strong><span>{oilActive?"Dimulai hari ini":"Catat pengisian/pergantian pertama"}</span></div></div>
+            <div className="progress"><i style={{width:"0%"}}/></div>
+            <div className="oil-metrics"><div><span>Top-up berikutnya</span><strong>0 / 10 pak</strong></div><div><span>Batas usia</span><strong>21 hari</strong></div></div>
+            <div className="oil-actions">{oilActive?<><button>Periksa minyak</button><button>Catat top-up</button></>:<button className="oil-start" onClick={()=>setOilModal(true)}>Mulai siklus minyak</button>}</div>
           </div>
         </section>
         <section className="panel recent-batches">
@@ -345,6 +361,7 @@ function Production() {
         <div className="modal-head"><div><span className="modal-icon"><CookingPot/></span><div><h2>Tambah hasil produksi</h2><p>Buat item baru untuk komposisi etalase.</p></div></div><button onClick={()=>setRecipeModal(false)}><X/></button></div>
         <div className="crud-form"><label>Nama hasil<input value={recipeName} onChange={e=>setRecipeName(e.target.value)} placeholder="Contoh: kulit crispy"/></label><div><label>Jumlah per pak<input type="number" defaultValue="1"/></label><label>Satuan<select><option>pcs</option><option>porsi</option><option>gram</option></select></label></div><button onClick={()=>{if(recipeName.trim())setRecipes(r=>[...r,{name:recipeName,qty:1,unit:"pcs"}]);setRecipeName("");setRecipeModal(false)}}>Simpan komposisi</button></div>
       </Modal>}
+      {oilModal && <Modal close={()=>setOilModal(false)}><div className="modal-head"><div><span className="modal-icon">💧</span><div><h2>Mulai siklus minyak</h2><p>Catat pengisian awal atau pergantian minyak.</p></div></div><button onClick={()=>setOilModal(false)}><X/></button></div><div className="crud-form"><label>Tanggal pengisian<input type="date" defaultValue="2026-07-23"/></label><div><label>Jumlah pouch<input type="number" defaultValue="7"/></label><label>Total liter<input type="number" defaultValue="14"/></label></div><label>Jenis aktivitas<select><option>Pengisian awal</option><option>Pergantian minyak</option></select></label><button onClick={()=>{setOilActive(true);setOilModal(false)}}>Mulai siklus dari nol</button></div></Modal>}
     </>
   );
 }
@@ -360,6 +377,7 @@ function Inventory() {
   ]);
   const [stockModal,setStockModal]=useState(false);
   const [stockName,setStockName]=useState("");
+  const [stockImage,setStockImage]=useState("");
   return <>
     <Topbar title="Persediaan" subtitle="Stok bahan, etalase, dan barang pendamping."/>
     <main className="content inventory-page">
@@ -371,7 +389,7 @@ function Inventory() {
         </tbody></table>
       </section>
     </main>
-    {stockModal && <Modal close={()=>setStockModal(false)}><div className="modal-head"><div><span className="modal-icon"><Boxes/></span><div><h2>Tambah persediaan</h2><p>Buat item dan aturan satuannya.</p></div></div><button onClick={()=>setStockModal(false)}><X/></button></div><div className="crud-form"><label>Nama item<input value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Nama bahan atau barang"/></label><div><label>Kelompok<select><option>Bahan baku</option><option>Siap jual</option><option>Pendamping</option></select></label><label>Satuan dasar<select><option>pak</option><option>pcs</option><option>gram</option><option>liter</option><option>porsi</option></select></label></div><label>Stok minimum<input type="number" placeholder="0"/></label><button onClick={()=>{if(stockName.trim())setRows(old=>[[stockName,"Bahan baku","0 pak","Item baru","low"],...old]);setStockName("");setStockModal(false)}}>Simpan item</button></div></Modal>}
+    {stockModal && <Modal close={()=>setStockModal(false)}><div className="modal-head"><div><span className="modal-icon"><Boxes/></span><div><h2>Tambah persediaan</h2><p>Buat item, foto, dan aturan satuannya.</p></div></div><button onClick={()=>setStockModal(false)}><X/></button></div><div className="crud-form"><label className="image-upload">{stockImage?<img src={stockImage} alt="Pratinjau item"/>:<span><PackageOpen/>Upload gambar item<small>PNG atau JPG, maks. 2 MB</small></span>}<input type="file" accept="image/png,image/jpeg" onChange={e=>{const file=e.target.files?.[0];if(file)setStockImage(URL.createObjectURL(file))}}/></label><label>Nama item<input value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Nama bahan atau barang"/></label><div><label>Kelompok<select><option>Bahan baku</option><option>Siap jual</option><option>Pendamping</option></select></label><label>Satuan dasar<select><option>pak</option><option>pcs</option><option>gram</option><option>liter</option><option>porsi</option></select></label></div><label>Stok minimum<input type="number" placeholder="0"/></label><button onClick={()=>{if(stockName.trim())setRows(old=>[[stockName,"Bahan baku","0 pak","Item baru","low"],...old]);setStockName("");setStockImage("");setStockModal(false)}}>Simpan item</button></div></Modal>}
   </>;
 }
 
@@ -423,17 +441,19 @@ function ActivityLog() {
   return <><Topbar title="Riwayat aktivitas" subtitle="Jejak lengkap perubahan dan aktivitas operator."/><main className="content"><section className="panel"><div className="log-toolbar"><div className="categories"><button className="active">Semua</button><button>Kasir</button><button>Produksi</button><button>Stok</button><button>Kas</button><button>Approval owner</button></div><label><Search/><input placeholder="Cari aktivitas..."/></label></div><div className="timeline">{events.map((e,i)=><div className="timeline-row" key={e[0]+e[2]}><span className={`timeline-dot t${i%4}`}/><time>{e[0]}</time><div className="avatar small">{e[1].slice(0,2).toUpperCase()}</div><p><strong>{e[1]}</strong><span>{e[2]}</span><small>{e[3]}</small></p><button>Detail</button></div>)}</div></section></main></>;
 }
 
-function SettingsPage() {
+function SettingsPage({ business, setBusiness }: { business: BusinessProfile; setBusiness: (business:BusinessProfile)=>void }) {
   const [autoPrint,setAutoPrint]=useState(true);
   const [kitchenPrint,setKitchenPrint]=useState(false);
-  return <><Topbar title="Pengaturan" subtitle="Atur perilaku kasir dan operasional outlet."/><main className="content settings-page"><aside className="settings-nav"><button className="active">Kasir & printer</button><button>Outlet</button><button>Produksi</button><button>Persediaan</button><button>PIN owner</button><button>Operator</button></aside><section className="panel settings-content"><div className="settings-title"><h2>Kasir & printer</h2><p>Konfigurasi pembayaran dan pencetakan struk.</p></div><div className="setting-row"><div><strong>Cetak struk otomatis</strong><span>Struk langsung dicetak setelah pembayaran berhasil.</span></div><button className={`switch ${autoPrint?"on":""}`} onClick={()=>setAutoPrint(!autoPrint)}><i/></button></div><div className="setting-row"><div><strong>Cetak tiket dapur</strong><span>Kirim tiket pesanan ke printer produksi.</span></div><button className={`switch ${kitchenPrint?"on":""}`} onClick={()=>setKitchenPrint(!kitchenPrint)}><i/></button></div><div className="setting-field"><label>Ukuran kertas</label><select defaultValue="58"><option value="58">Thermal 58 mm</option><option value="80">Thermal 80 mm</option></select></div><div className="setting-field"><label>Printer struk</label><select><option>Printer kasir utama</option><option>Belum terhubung</option></select></div><div className="receipt-preview"><span>PRATINJAU STRUK</span><div><b>SABANA FRIED CHICKEN</b><small>Pesanan #A-087 · Takeaway</small><hr/><p>1x Paket Ayam Nasi <em>Rp19.000</em></p><p>1x Ayam Crispy <em>Rp13.000</em></p><hr/><strong>TOTAL <em>Rp32.000</em></strong><small>Terima kasih!</small></div></div><button className="save-settings">Simpan pengaturan</button></section></main></>;
+  return <><Topbar title="Pengaturan" subtitle="Atur profil bisnis, kasir, dan operasional outlet."/><main className="content settings-page"><aside className="settings-nav"><button className="active">Profil bisnis</button><button>Kasir & printer</button><button>Outlet</button><button>Produksi</button><button>Persediaan</button><button>PIN owner</button><button>Operator</button></aside><section className="panel settings-content"><div className="settings-title"><h2>Profil bisnis</h2><p>Identitas ini digunakan di aplikasi dan struk.</p></div><div className="business-fields"><label>Nama bisnis<input value={business.name} onChange={e=>setBusiness({...business,name:e.target.value})}/></label><label>Nama outlet<input value={business.outlet} onChange={e=>setBusiness({...business,outlet:e.target.value})}/></label><label>Tagline<input value={business.tagline} onChange={e=>setBusiness({...business,tagline:e.target.value})}/></label><label>Warna utama<div className="color-field"><input type="color" value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/><input value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/></div></label></div><div className="settings-title sub"><h2>Kasir & printer</h2><p>Konfigurasi pembayaran dan pencetakan struk.</p></div><div className="setting-row"><div><strong>Cetak struk otomatis</strong><span>Struk langsung dicetak setelah pembayaran berhasil.</span></div><button className={`switch ${autoPrint?"on":""}`} onClick={()=>setAutoPrint(!autoPrint)}><i/></button></div><div className="setting-row"><div><strong>Cetak tiket dapur</strong><span>Kirim tiket pesanan ke printer produksi.</span></div><button className={`switch ${kitchenPrint?"on":""}`} onClick={()=>setKitchenPrint(!kitchenPrint)}><i/></button></div><div className="setting-field"><label>Ukuran kertas</label><select defaultValue="58"><option value="58">Thermal 58 mm</option><option value="80">Thermal 80 mm</option></select></div><div className="setting-field"><label>Printer struk</label><select><option>Printer kasir utama</option><option>Belum terhubung</option></select></div><div className="receipt-preview"><span>PRATINJAU STRUK</span><div><b>{business.name.toUpperCase()}</b><small>{business.outlet} · Pesanan #A-087</small><hr/><p>1x Paket Ayam Nasi <em>Rp19.000</em></p><p>1x Ayam Crispy <em>Rp13.000</em></p><hr/><strong>TOTAL <em>Rp32.000</em></strong><small>Terima kasih!</small></div></div><button className="save-settings">Simpan pengaturan</button></section></main></>;
 }
 
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
+  const [business,setBusiness]=useState(defaultBusiness);
+  const [collapsed,setCollapsed]=useState(false);
   return (
-    <div className="app-shell">
-      <Sidebar view={view} setView={setView} />
+    <div className={`app-shell ${collapsed?"sidebar-is-collapsed":""}`} style={{"--red":business.primaryColor,"--red-dark":business.primaryColor} as CSSProperties}>
+      <Sidebar view={view} setView={setView} business={business} collapsed={collapsed} setCollapsed={setCollapsed} />
       <section className="workspace">
         {view === "dashboard" && <Dashboard setView={setView}/>}
         {view === "kasir" && <POS/>}
@@ -442,7 +462,7 @@ export default function Home() {
         {view === "drawer" && <Drawer/>}
         {view === "laporan" && <Reports/>}
         {view === "riwayat" && <ActivityLog/>}
-        {view === "pengaturan" && <SettingsPage/>}
+        {view === "pengaturan" && <SettingsPage business={business} setBusiness={setBusiness}/>}
       </section>
     </div>
   );
