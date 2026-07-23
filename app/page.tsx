@@ -31,8 +31,9 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { createCategory, createInventoryItem, createProduct, listCategories, listInventory, loadBusinessProfile, saveBusinessProfile } from "../lib/repository";
 
 type View = "dashboard" | "kasir" | "menu" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
@@ -311,6 +312,7 @@ function MenuManagement() {
   const [products,setProducts]=useState(menuItems);
   const [modal,setModal]=useState<"menu"|"category"|null>(null);
   const [newName,setNewName]=useState("");
+  useEffect(()=>{listCategories(categories).then(setCategories).catch(()=>undefined)},[]);
   return <>
     <Topbar title="Menu & Kategori" subtitle="Kelola katalog, harga franchise, dan resep penjualan kasir."/>
     <main className="content menu-management">
@@ -325,7 +327,7 @@ function MenuManagement() {
         </section>
       </section>
     </main>
-    {modal && <Modal close={()=>setModal(null)}><div className="modal-head"><div><span className="modal-icon">{modal==="menu"?<ShoppingBag/>:<Grid2X2/>}</span><div><h2>{modal==="menu"?"Tambah menu kasir":"Tambah kategori"}</h2><p>{modal==="menu"?"Atur katalog dan bahan yang dipakai saat terjual.":"Kelompokkan menu agar kasir lebih cepat."}</p></div></div><button onClick={()=>setModal(null)}><X/></button></div><div className="crud-form"><label>Nama {modal==="menu"?"menu":"kategori"}<input value={newName} onChange={e=>setNewName(e.target.value)} placeholder={modal==="menu"?"Contoh: Paket Hemat":"Contoh: Promo"}/></label>{modal==="menu"&&<><div><label>Kategori<select>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Harga franchise<input type="number" placeholder="0"/></label></div><label>Resep penjualan<div className="ingredient-placeholder"><span>Ayam matang — 1 pcs</span><span>Kemasan — 1 pcs</span><button>+ Tambah bahan</button></div></label></>}<button onClick={()=>{if(newName.trim()){if(modal==="category")setCategories(c=>[...c,newName]);else setProducts(p=>[...p,{id:Date.now(),name:newName,note:"Menu baru",price:0,icon:"🍽️",color:"cream"}])}setNewName("");setModal(null)}}>Simpan {modal==="menu"?"menu":"kategori"}</button></div></Modal>}
+    {modal && <Modal close={()=>setModal(null)}><div className="modal-head"><div><span className="modal-icon">{modal==="menu"?<ShoppingBag/>:<Grid2X2/>}</span><div><h2>{modal==="menu"?"Tambah menu kasir":"Tambah kategori"}</h2><p>{modal==="menu"?"Atur katalog dan bahan yang dipakai saat terjual.":"Kelompokkan menu agar kasir lebih cepat."}</p></div></div><button onClick={()=>setModal(null)}><X/></button></div><div className="crud-form"><label>Nama {modal==="menu"?"menu":"kategori"}<input value={newName} onChange={e=>setNewName(e.target.value)} placeholder={modal==="menu"?"Contoh: Paket Hemat":"Contoh: Promo"}/></label>{modal==="menu"&&<><div><label>Kategori<select>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Harga franchise<input type="number" placeholder="0"/></label></div><label>Resep penjualan<div className="ingredient-placeholder"><span>Ayam matang — 1 pcs</span><span>Kemasan — 1 pcs</span><button>+ Tambah bahan</button></div></label></>}<button onClick={async()=>{if(newName.trim()){if(modal==="category"){await createCategory(newName,categories);setCategories(c=>[...c,newName])}else{await createProduct({name:newName,salePrice:0,categoryName:categories[0]});setProducts(p=>[...p,{id:Date.now(),name:newName,note:"Menu baru",price:0,icon:"🍽️",color:"cream"}])}}setNewName("");setModal(null)}}>Simpan {modal==="menu"?"menu":"kategori"}</button></div></Modal>}
   </>;
 }
 
@@ -401,6 +403,7 @@ function Inventory() {
   const [stockModal,setStockModal]=useState(false);
   const [stockName,setStockName]=useState("");
   const [stockImage,setStockImage]=useState("");
+  useEffect(()=>{listInventory().then(items=>{if(items.length)setRows(items.map(item=>[item.name,item.kind,`${item.stockQuantity} ${item.purchaseUnit}`,`Minimum ${item.minimumStock}`,item.stockQuantity<=item.minimumStock?"low":"good"]))}).catch(()=>undefined)},[]);
   return <>
     <Topbar title="Persediaan" subtitle="Stok bahan, etalase, dan barang pendamping."/>
     <main className="content inventory-page">
@@ -414,17 +417,17 @@ function Inventory() {
     </main>
     {stockModal && <Modal close={()=>setStockModal(false)}>
       <div className="modal-head"><div><span className="modal-icon"><Boxes/></span><div><h2>Tambah bahan</h2><p>Atur identitas, satuan, konversi, dan batas stok.</p></div></div><button onClick={()=>setStockModal(false)}><X/></button></div>
-      <div className="crud-form stock-crud">
+      <form className="crud-form stock-crud" onSubmit={async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const stock=Number(form.get("stockQuantity")||0);await createInventoryItem({name:stockName,sku:String(form.get("sku")||""),kind:String(form.get("kind")) as "raw_material",supplierName:String(form.get("supplierName")||""),purchasePrice:form.get("purchasePrice")?Number(form.get("purchasePrice")):undefined,purchaseUnit:String(form.get("purchaseUnit")),usageUnit:String(form.get("usageUnit")),unitsPerPurchase:Number(form.get("unitsPerPurchase")||1),stockQuantity:stock,minimumStock:Number(form.get("minimumStock")||0),shelfLifeDays:form.get("shelfLifeDays")?Number(form.get("shelfLifeDays")):undefined,storageLocation:String(form.get("storageLocation")||""),stockAlertEnabled:form.get("stockAlertEnabled")==="on",allowNegativeStock:form.get("allowNegativeStock")==="on"});setRows(old=>[[stockName,"Bahan baku",`${stock} ${String(form.get("purchaseUnit"))}`,"Item baru",stock<=Number(form.get("minimumStock")||0)?"low":"good"],...old]);setStockName("");setStockImage("");setStockModal(false)}}>
         <label className="image-upload">{stockImage?<img src={stockImage} alt="Pratinjau bahan"/>:<span><PackageOpen/>Upload gambar bahan<small>PNG atau JPG, maks. 2 MB</small></span>}<input type="file" accept="image/png,image/jpeg" onChange={e=>{const file=e.target.files?.[0];if(file)setStockImage(URL.createObjectURL(file))}}/></label>
-        <div><label>Nama bahan<input value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Contoh: Ayam mentah"/></label><label>Kode/SKU <small>Opsional</small><input placeholder="BHN-001"/></label></div>
-        <div><label>Kelompok<select><option>Bahan baku</option><option>Hasil produksi</option><option>Pendamping</option><option>Barang langsung jual</option></select></label><label>Supplier <small>Opsional</small><input placeholder="Pilih atau tulis supplier"/></label></div>
-        <div><label>Harga beli <small>Opsional</small><div className="price-input"><span>Rp</span><input type="number" placeholder="0"/></div></label><label>Satuan beli<select><option>pak</option><option>pouch</option><option>karton</option><option>karung</option><option>kg</option></select></label></div>
-        <div><label>Satuan pemakaian/jual<select><option>pcs</option><option>gram</option><option>ml</option><option>liter</option><option>porsi</option></select></label><label>Isi per satuan beli<input type="number" placeholder="Contoh: 9"/></label></div>
-        <div><label>Stok awal<input type="number" placeholder="0"/></label><label>Stok minimum<input type="number" placeholder="0"/></label></div>
-        <div><label>Masa simpan <small>Opsional</small><div className="inline-unit"><input type="number" placeholder="0"/><select><option>hari</option><option>minggu</option><option>bulan</option></select></div></label><label>Lokasi penyimpanan <small>Opsional</small><input placeholder="Gudang / freezer"/></label></div>
-        <div className="item-options"><label><input type="checkbox" defaultChecked/>Aktifkan peringatan stok minimum</label><label><input type="checkbox"/>Izinkan stok negatif untuk bahan ini</label></div>
-        <button onClick={()=>{if(stockName.trim())setRows(old=>[[stockName,"Bahan baku","0 pak","Item baru","low"],...old]);setStockName("");setStockImage("");setStockModal(false)}}>Simpan bahan</button>
-      </div>
+        <div><label>Nama bahan<input required value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Contoh: Ayam mentah"/></label><label>Kode/SKU <small>Opsional</small><input name="sku" placeholder="BHN-001"/></label></div>
+        <div><label>Kelompok<select name="kind"><option value="raw_material">Bahan baku</option><option value="production_output">Hasil produksi</option><option value="sales_supply">Pendamping</option><option value="direct_sale">Barang langsung jual</option></select></label><label>Supplier <small>Opsional</small><input name="supplierName" placeholder="Pilih atau tulis supplier"/></label></div>
+        <div><label>Harga beli <small>Opsional</small><div className="price-input"><span>Rp</span><input name="purchasePrice" type="number" placeholder="0"/></div></label><label>Satuan beli<select name="purchaseUnit"><option>pak</option><option>pouch</option><option>karton</option><option>karung</option><option>kg</option></select></label></div>
+        <div><label>Satuan pemakaian/jual<select name="usageUnit"><option>pcs</option><option>gram</option><option>ml</option><option>liter</option><option>porsi</option></select></label><label>Isi per satuan beli<input name="unitsPerPurchase" type="number" step="0.001" defaultValue="1" placeholder="Contoh: 9"/></label></div>
+        <div><label>Stok awal<input name="stockQuantity" type="number" step="0.001" defaultValue="0"/></label><label>Stok minimum<input name="minimumStock" type="number" step="0.001" defaultValue="0"/></label></div>
+        <div><label>Masa simpan <small>Opsional</small><div className="inline-unit"><input name="shelfLifeDays" type="number" placeholder="0"/><select><option>hari</option><option>minggu</option><option>bulan</option></select></div></label><label>Lokasi penyimpanan <small>Opsional</small><input name="storageLocation" placeholder="Gudang / freezer"/></label></div>
+        <div className="item-options"><label><input name="stockAlertEnabled" type="checkbox" defaultChecked/>Aktifkan peringatan stok minimum</label><label><input name="allowNegativeStock" type="checkbox"/>Izinkan stok negatif untuk bahan ini</label></div>
+        <button type="submit">Simpan bahan</button>
+      </form>
     </Modal>}
   </>;
 }
@@ -489,9 +492,10 @@ function ActivityLog() {
   return <><Topbar title="Riwayat aktivitas" subtitle="Jejak lengkap perubahan dan aktivitas operator."/><main className="content"><section className="panel"><div className="log-toolbar"><div className="categories"><button className="active">Semua</button><button>Kasir</button><button>Produksi</button><button>Stok</button><button>Kas</button><button>Approval owner</button></div><label><Search/><input placeholder="Cari aktivitas..."/></label></div><div className="timeline">{events.map((e,i)=><div className="timeline-row" key={e[0]+e[2]}><span className={`timeline-dot t${i%4}`}/><time>{e[0]}</time><div className="avatar small">{e[1].slice(0,2).toUpperCase()}</div><p><strong>{e[1]}</strong><span>{e[2]}</span><small>{e[3]}</small></p><button>Detail</button></div>)}</div></section></main></>;
 }
 
-function SettingsPage({ business, setBusiness }: { business: BusinessProfile; setBusiness: (business:BusinessProfile)=>void }) {
+function SettingsPage({ business, setBusiness, onSave }: { business: BusinessProfile; setBusiness: (business:BusinessProfile)=>void; onSave:()=>Promise<void> }) {
   const [autoPrint,setAutoPrint]=useState(true);
   const [kitchenPrint,setKitchenPrint]=useState(false);
+  const [saveState,setSaveState]=useState<"idle"|"saving"|"saved">("idle");
   const tabs=["Profil bisnis","Kasir & printer","Outlet","Default & lanjutan","PIN owner","Operator"];
   const [tab,setTab]=useState("Profil bisnis");
   return <>
@@ -505,7 +509,7 @@ function SettingsPage({ business, setBusiness }: { business: BusinessProfile; se
         {tab==="Default & lanjutan" && <><div className="settings-title"><h2>Default & aturan lanjutan</h2><p>Nilai opsional untuk item baru. Setiap bahan dan resep dapat memakai aturan khusus.</p></div><div className="advanced-banner"><Settings/><div><strong>Tidak wajib diisi</strong><span>Pengaturan ini hanya menjadi nilai awal ketika membuat bahan atau proses produksi baru.</span></div></div><div className="setting-field"><label>Ukuran batch awal</label><select><option>2 pak ayam</option><option>Tanpa default</option></select></div><div className="setting-field"><label>Metode penggunaan batch</label><select><option>FIFO · batch tertua dahulu</option><option>Manual</option></select></div><div className="setting-field"><label>Jadwal pengingat opname</label><select><option>Setiap tutup outlet</option><option>Mingguan</option><option>Nonaktif</option></select></div><div className="setting-row"><div><strong>Cegah stok negatif secara default</strong><span>Dapat dioverride pada masing-masing bahan.</span></div><button className="switch on"><i/></button></div><div className="setting-row"><div><strong>Peringatan stok minimum default</strong><span>Dapat dinonaktifkan pada bahan tertentu.</span></div><button className="switch on"><i/></button></div><h3 className="setting-subtitle">Aturan alat deep fryer</h3><div className="setting-field"><label>Pengingat top-up</label><input defaultValue="Setiap 10 pak ayam"/></div><div className="setting-field"><label>Batas pergantian</label><input defaultValue="200 pak atau 21 hari"/></div></>}
         {tab==="PIN owner" && <><div className="settings-title"><h2>PIN owner</h2><p>Kontrol tindakan sensitif dan approval.</p></div><div className="owner-pin-card"><ShieldCheck/><div><strong>PIN owner aktif</strong><span>Terakhir diubah 12 Juli 2026</span></div><button>Ubah PIN</button></div><h3 className="setting-subtitle">Wajib approval untuk</h3>{["Refund dan pembatalan transaksi","Selisih close kasir di atas Rp10.000","Cash-out di atas Rp200.000","Koreksi stok dan hasil produksi","Produksi saat minyak melewati batas"].map(item=><label className="approval-rule" key={item}><input type="checkbox" defaultChecked/><span>{item}</span></label>)}</>}
         {tab==="Operator" && <><div className="settings-title"><h2>Operator</h2><p>Identitas staf untuk pencatatan aktivitas.</p></div><div className="operator-list">{[["DN","Dina","Aktif · Shift pagi"],["RK","Raka","Aktif · Shift siang"],["AY","Ayu","Tidak sedang shift"]].map(o=><div key={o[1]}><div className="avatar">{o[0]}</div><p><strong>{o[1]}</strong><span>{o[2]}</span></p><button>Kelola</button></div>)}</div><button className="add-operator"><Plus/> Tambah operator</button></>}
-        <button className="save-settings">Simpan pengaturan</button>
+        <button className="save-settings" onClick={async()=>{setSaveState("saving");await onSave();setSaveState("saved");setTimeout(()=>setSaveState("idle"),1600)}}>{saveState==="saving"?"Menyimpan...":saveState==="saved"?"Tersimpan ✓":"Simpan pengaturan"}</button>
       </section>
     </main>
   </>;
@@ -515,6 +519,7 @@ export default function Home() {
   const [view, setView] = useState<View>("dashboard");
   const [business,setBusiness]=useState(defaultBusiness);
   const [collapsed,setCollapsed]=useState(false);
+  useEffect(()=>{loadBusinessProfile(defaultBusiness).then(setBusiness).catch(()=>undefined)},[]);
   return (
     <div className={`app-shell ${collapsed?"sidebar-is-collapsed":""}`} style={{"--red":business.primaryColor,"--red-dark":business.primaryColor} as CSSProperties}>
       <Sidebar view={view} setView={setView} business={business} collapsed={collapsed} setCollapsed={setCollapsed} />
@@ -527,7 +532,7 @@ export default function Home() {
         {view === "drawer" && <Drawer/>}
         {view === "laporan" && <Reports/>}
         {view === "riwayat" && <ActivityLog/>}
-        {view === "pengaturan" && <SettingsPage business={business} setBusiness={setBusiness}/>}
+        {view === "pengaturan" && <SettingsPage business={business} setBusiness={setBusiness} onSave={async()=>{await saveBusinessProfile(business)}}/>}
       </section>
     </div>
   );
