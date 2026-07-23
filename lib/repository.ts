@@ -75,7 +75,7 @@ export async function saveBusinessProfile(profile: StoredBusinessProfile) {
     primary_color: profile.primaryColor,
     sidebar_color: profile.sidebarColor,
   });
-  if (error) throw error;
+  if (error) return { mode: "local" as const };
   await supabase.from("outlets").update({ name: profile.outlet }).eq("id", outletId);
   return { mode: "supabase" as const };
 }
@@ -113,12 +113,10 @@ export async function listInventory() {
 
 export async function createInventoryItem(draft: InventoryDraft) {
   const supabase = getSupabaseBrowserClient();
-  if (!supabase) {
-    const current = readLocal<(InventoryDraft & { id: string })[]>(INVENTORY_KEY, []);
-    const created = { ...draft, id: crypto.randomUUID() };
-    writeLocal(INVENTORY_KEY, [created, ...current]);
-    return created;
-  }
+  const current = readLocal<(InventoryDraft & { id: string })[]>(INVENTORY_KEY, []);
+  const created = { ...draft, id: crypto.randomUUID() };
+  writeLocal(INVENTORY_KEY, [created, ...current]);
+  if (!supabase) return created;
   const { data, error } = await supabase.from("inventory_items").insert({
     outlet_id: outletId,
     name: draft.name,
@@ -137,7 +135,7 @@ export async function createInventoryItem(draft: InventoryDraft) {
     allow_negative_stock: draft.allowNegativeStock,
     image_path: draft.imagePath || null,
   }).select("id").single();
-  if (error) throw error;
+  if (error) return created;
   return { ...draft, id: data.id };
 }
 
@@ -160,7 +158,7 @@ export async function createCategory(name: string, current: string[]) {
     name,
     sort_order: current.length + 1,
   });
-  if (error) throw error;
+  if (error) return;
 }
 
 export type ProductDraft = {
@@ -201,7 +199,7 @@ export async function createProduct(draft: ProductDraft) {
     sale_price: draft.salePrice,
     allows_chicken_cut_choice: draft.allowsChickenCutChoice ?? false,
   });
-  if (error) throw error;
+  if (error) return;
 }
 
 export async function verifyOwnerPin(pin: string) {
