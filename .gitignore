@@ -3,6 +3,7 @@ node_modules
 .open-next
 dist
 *.log
+*.tsbuildinfo
 .env*
 !.env.example
 .vinext/

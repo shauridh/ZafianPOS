@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-type View = "dashboard" | "kasir" | "produksi" | "stok" | "drawer";
+type View = "dashboard" | "kasir" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
 type CartItem = { id: number; name: string; cut?: Cut; price: number; qty: number };
 
@@ -68,6 +68,12 @@ const nav = [
   { id: "drawer", label: "Kas & Shift", icon: WalletCards },
 ] as const;
 
+const secondaryNav = [
+  { id: "laporan", label: "Laporan", icon: BarChart3 },
+  { id: "riwayat", label: "Riwayat aktivitas", icon: History },
+  { id: "pengaturan", label: "Pengaturan", icon: Settings },
+] as const;
+
 function Sidebar({ view, setView }: { view: View; setView: (view: View) => void }) {
   return (
     <aside className="sidebar">
@@ -81,9 +87,11 @@ function Sidebar({ view, setView }: { view: View; setView: (view: View) => void 
           </button>
         ))}
         <span className="nav-caption lower">LAINNYA</span>
-        <button><BarChart3 size={19} /> Laporan</button>
-        <button><History size={19} /> Riwayat aktivitas</button>
-        <button><Settings size={19} /> Pengaturan</button>
+        {secondaryNav.map((item) => (
+          <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}>
+            <item.icon size={19} /> {item.label}
+          </button>
+        ))}
       </nav>
       <div className="shift-card">
         <div><span className="live-dot" /> SHIFT AKTIF</div>
@@ -113,12 +121,20 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 function Dashboard({ setView }: { setView: (view: View) => void }) {
+  const [period, setPeriod] = useState("Hari ini");
+  const [customPeriod, setCustomPeriod] = useState(false);
   return (
     <>
       <Topbar title="Selamat pagi, Dina" subtitle="Berikut kondisi outlet Sabana hari ini." />
       <main className="content dashboard-content">
+        <section className="period-bar">
+          <div>
+            {["Hari ini","Kemarin","Minggu ini","Bulan ini","All time"].map(item=><button key={item} className={period===item?"active":""} onClick={()=>setPeriod(item)}>{item}</button>)}
+          </div>
+          <button className="custom-period" onClick={()=>setCustomPeriod(true)}><Clock3/> Periode khusus</button>
+        </section>
         <section className="hero-strip">
-          <div><span>OMZET HARI INI</span><strong>Rp 2.480.000</strong><p><b>↑ 12,4%</b> dibanding Kamis lalu</p></div>
+          <div><span>OMZET · {period.toUpperCase()}</span><strong>Rp 2.480.000</strong><p><b>↑ 12,4%</b> dibanding periode sebelumnya</p></div>
           <div className="hero-divider" />
           <div className="hero-mini"><ReceiptText /><span>Transaksi<strong>86</strong></span></div>
           <div className="hero-mini"><CircleDollarSign /><span>Rata-rata<strong>Rp 28.837</strong></span></div>
@@ -167,7 +183,26 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
             <div className="alert-row"><span className="alert-icon blue"><Boxes /></span><div><strong>Tepung hampir habis</strong><small>Tersisa 1,3 pak · cukup untuk 3 pak ayam</small></div><ArrowRight /></div>
           </div>
         </section>
+        <section className="analytics-grid">
+          <div className="panel">
+            <div className="panel-head"><div><h2>Komposisi penjualan</h2><p>Kontribusi tiap kategori menu</p></div><button onClick={()=>setView("laporan")}>Analisa</button></div>
+            <div className="donut-wrap"><div className="donut"><span>124<small>item</small></span></div><div className="legend"><p><i className="l-red"/>Paket ayam <b>46%</b></p><p><i className="l-amber"/>Ayam satuan <b>29%</b></p><p><i className="l-green"/>Rice bowl <b>16%</b></p><p><i className="l-gray"/>Lainnya <b>9%</b></p></div></div>
+          </div>
+          <div className="panel">
+            <div className="panel-head"><div><h2>Metode pembayaran</h2><p>Nilai transaksi berdasarkan metode</p></div></div>
+            <div className="horizontal-bars"><div><span>Tunai <b>Rp826rb</b></span><i><em style={{width:"34%"}}/></i></div><div><span>QRIS <b>Rp1,65jt</b></span><i><em className="qris-bar" style={{width:"66%"}}/></i></div></div>
+          </div>
+          <div className="panel">
+            <div className="panel-head"><div><h2>Efisiensi produksi</h2><p>Hasil aktual terhadap standar</p></div></div>
+            <div className="efficiency"><strong>98,7%</strong><span>178 dari 180 potong sesuai standar</span><div><i style={{width:"98.7%"}}/></div><small>Susut produksi: 2 potong</small></div>
+          </div>
+        </section>
       </main>
+      {customPeriod && <Modal close={()=>setCustomPeriod(false)}>
+        <div className="modal-head"><div><span className="modal-icon"><Clock3/></span><div><h2>Pilih periode khusus</h2><p>Analisa data pada rentang tanggal tertentu.</p></div></div><button onClick={()=>setCustomPeriod(false)}><X/></button></div>
+        <div className="date-range"><label>Dari<input type="date" defaultValue="2026-07-01"/></label><span>→</span><label>Sampai<input type="date" defaultValue="2026-07-23"/></label></div>
+        <button className="primary-wide" onClick={()=>{setPeriod("1–23 Jul 2026");setCustomPeriod(false)}}>Terapkan periode</button>
+      </Modal>}
     </>
   );
 }
@@ -183,6 +218,9 @@ function POS() {
   ]);
   const [cutPicker, setCutPicker] = useState<(typeof menuItems)[number] | null>(null);
   const [paid, setPaid] = useState(false);
+  const [payment, setPayment] = useState(false);
+  const [channel, setChannel] = useState("Takeaway");
+  const [cash, setCash] = useState("");
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
   const addItem = (item: (typeof menuItems)[number], cut?: Cut) => {
     setCart((prev) => [...prev, { id: Date.now(), name: item.name, price: item.price, qty: 1, cut }]);
@@ -193,7 +231,7 @@ function POS() {
   };
   return (
     <>
-      <Topbar title="Kasir" subtitle="Takeaway · Pesanan #A-087" />
+      <div className="pos-topbar"><div><h1>Kasir</h1><p>{channel} · Pesanan #A-087</p></div><div><span className="live-dot"/> Shift Dina aktif</div></div>
       <div className="pos-layout">
         <main className="pos-menu">
           <div className="pos-tools">
@@ -215,7 +253,8 @@ function POS() {
           </div>
         </main>
         <aside className="cart">
-          <div className="cart-head"><div><h2>Pesanan #A-087</h2><p><ShoppingBag size={14}/> Takeaway</p></div><button><Trash2 size={18}/></button></div>
+          <div className="cart-head"><div><h2>Pesanan #A-087</h2><p><ShoppingBag size={14}/> {channel}</p></div><button><Trash2 size={18}/></button></div>
+          <div className="order-channel">{["Takeaway","Dine in","Online food"].map(item=><button key={item} className={channel===item?"active":""} onClick={()=>setChannel(item)}>{item}</button>)}</div>
           <div className="customer"><span>Nama pelanggan</span><button>+ Tambahkan nama</button></div>
           <div className="cart-list">
             {cart.map(item => (
@@ -226,15 +265,25 @@ function POS() {
             ))}
             {!cart.length && <div className="empty-cart"><ShoppingBag/><strong>Keranjang kosong</strong><span>Pilih menu untuk memulai</span></div>}
           </div>
-          <button className="note-button">+ Tambah catatan pesanan</button>
           <div className="totals"><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div><span>Diskon</span><button>+ Tambah</button></div><div className="grand"><span>Total</span><strong>{money(subtotal)}</strong></div></div>
           <div className="pay-method"><span>Metode pembayaran</span><div><button className="active"><Banknote/>Tunai</button><button><Grid2X2/>QRIS</button></div></div>
-          <button className="pay-button" disabled={!cart.length} onClick={()=>setPaid(true)}><span>Bayar sekarang</span><strong>{money(subtotal)}</strong></button>
+          <button className="pay-button" disabled={!cart.length} onClick={()=>{setCash("");setPayment(true)}}><span>Bayar sekarang</span><strong>{money(subtotal)}</strong></button>
         </aside>
       </div>
       {cutPicker && <Modal close={()=>setCutPicker(null)}>
         <div className="modal-head"><div><span className="modal-icon">🍗</span><div><h2>Pilih bagian ayam</h2><p>{cutPicker.name}</p></div></div><button onClick={()=>setCutPicker(null)}><X/></button></div>
         <div className="cut-grid">{Object.entries(cutStock).map(([cut,stock])=><button key={cut} onClick={()=>addItem(cutPicker, cut as Cut)}><span>♨</span><strong>{cut}</strong><small>Tersedia {stock} potong</small><ArrowRight/></button>)}</div>
+      </Modal>}
+      {payment && <Modal close={()=>setPayment(false)}>
+        <div className="modal-head"><div><span className="modal-icon"><Banknote/></span><div><h2>Pembayaran tunai</h2><p>Total pesanan #A-087</p></div></div><button onClick={()=>setPayment(false)}><X/></button></div>
+        <div className="payment-total"><span>Total tagihan</span><strong>{money(subtotal)}</strong></div>
+        <div className="cash-received"><span>Uang diterima</span><strong>{cash?money(Number(cash)):"Rp 0"}</strong></div>
+        <div className="cash-presets">{[subtotal,50000,100000].filter((v,i,a)=>a.indexOf(v)===i).map(v=><button key={v} onClick={()=>setCash(String(v))}>{v===subtotal?"Uang pas":money(v).replace(",00","")}</button>)}</div>
+        <div className="numpad">
+          {[1,2,3,4,5,6,7,8,9,"00",0,"⌫"].map(key=><button key={key} onClick={()=>setCash(old=>key==="⌫"?old.slice(0,-1):`${old}${key}`.replace(/^0+/,""))}>{key}</button>)}
+        </div>
+        <div className={`change-box ${Number(cash)>=subtotal?"ready":""}`}><span>Kembalian</span><strong>{Number(cash)>=subtotal?money(Number(cash)-subtotal):"Nominal belum cukup"}</strong></div>
+        <button className="primary-wide" disabled={Number(cash)<subtotal} onClick={()=>{setPayment(false);setPaid(true)}}>Konfirmasi pembayaran <ArrowRight/></button>
       </Modal>}
       {paid && <Modal close={()=>setPaid(false)}>
         <div className="success-modal"><span><Check/></span><h2>Pembayaran berhasil</h2><p>Pesanan <b>#A-087</b> sudah masuk ke antrean.</p><div><strong>{money(subtotal)}</strong><small>Tunai · Struk 58mm siap dicetak</small></div><button onClick={()=>{setPaid(false);setCart([])}}>Pesanan baru</button></div>
@@ -246,6 +295,14 @@ function POS() {
 function Production() {
   const [packs, setPacks] = useState(2);
   const [done, setDone] = useState(false);
+  const [recipes, setRecipes] = useState([
+    {name:"Sayap", qty:2, unit:"pcs"},
+    {name:"Paha atas", qty:2, unit:"pcs"},
+    {name:"Paha bawah", qty:2, unit:"pcs"},
+    {name:"Dada", qty:3, unit:"pcs"},
+  ]);
+  const [recipeModal, setRecipeModal] = useState(false);
+  const [recipeName, setRecipeName] = useState("");
   return (
     <>
       <Topbar title="Produksi" subtitle="Kelola batch goreng dan kondisi deep fryer." />
@@ -265,8 +322,8 @@ function Production() {
           </div>
           <div className="panel output-card">
             <div className="eyebrow"><span>02</span> HASIL STANDAR</div>
-            <h2>Komposisi etalase</h2><p>Hasil dapat dikoreksi sebelum konfirmasi.</p>
-            {[["Sayap",2],["Paha atas",2],["Paha bawah",2],["Dada",3]].map(([name,mult])=><div className="output-row" key={name}><span className="chicken-symbol">♨</span><div><strong>{name}</strong><small>Ayam matang</small></div><b>{Number(mult)*packs} pcs</b></div>)}
+            <div className="section-title-action"><div><h2>Komposisi etalase</h2><p>Kelola hasil produksi yang masuk ke etalase.</p></div><button onClick={()=>setRecipeModal(true)}><Plus/> Tambah</button></div>
+            {recipes.map((item)=><div className="output-row editable" key={item.name}><span className="chicken-symbol">♨</span><div><strong>{item.name}</strong><small>Hasil per 1 pak ayam</small></div><b>{item.qty*packs} {item.unit}</b><button onClick={()=>setRecipes(r=>r.filter(x=>x.name!==item.name))}>×</button></div>)}
           </div>
           <div className="panel oil-cycle">
             <div className="panel-head"><div><span className="eyebrow plain">DEEP FRYER 1</span><h2>Siklus minyak</h2></div><span className="status warning">Periksa</span></div>
@@ -284,30 +341,37 @@ function Production() {
         </section>
       </main>
       {done && <Modal close={()=>setDone(false)}><div className="success-modal"><span><Check/></span><h2>Batch #{`B-026`} dimulai</h2><p>Bahan baku sudah dialokasikan untuk produksi.</p><div><strong>{packs*9} potong</strong><small>{packs} pak ayam · {(packs/3).toFixed(2).replace(".",",")} pak tepung</small></div><button onClick={()=>setDone(false)}>Kembali ke produksi</button></div></Modal>}
+      {recipeModal && <Modal close={()=>setRecipeModal(false)}>
+        <div className="modal-head"><div><span className="modal-icon"><CookingPot/></span><div><h2>Tambah hasil produksi</h2><p>Buat item baru untuk komposisi etalase.</p></div></div><button onClick={()=>setRecipeModal(false)}><X/></button></div>
+        <div className="crud-form"><label>Nama hasil<input value={recipeName} onChange={e=>setRecipeName(e.target.value)} placeholder="Contoh: kulit crispy"/></label><div><label>Jumlah per pak<input type="number" defaultValue="1"/></label><label>Satuan<select><option>pcs</option><option>porsi</option><option>gram</option></select></label></div><button onClick={()=>{if(recipeName.trim())setRecipes(r=>[...r,{name:recipeName,qty:1,unit:"pcs"}]);setRecipeName("");setRecipeModal(false)}}>Simpan komposisi</button></div>
+      </Modal>}
     </>
   );
 }
 
 function Inventory() {
-  const rows = [
+  const [rows, setRows] = useState([
     ["Ayam mentah","Bahan baku","12 pak","Cukup untuk 6 batch","good"],
     ["Tepung bumbu","Bahan baku","1,3 pak","Cukup untuk 3 pak ayam","low"],
     ["Minyak goreng","Bahan baku","9 pouch","18 liter","good"],
     ["Kemasan ayam","Pendamping","84 pcs","Batas minimum 50","good"],
     ["Nasi siap saji","Siap jual","21 porsi","Dibuat 10:30","good"],
     ["Saus sachet","Pendamping","38 pcs","Batas minimum 40","low"],
-  ];
+  ]);
+  const [stockModal,setStockModal]=useState(false);
+  const [stockName,setStockName]=useState("");
   return <>
     <Topbar title="Persediaan" subtitle="Stok bahan, etalase, dan barang pendamping."/>
     <main className="content inventory-page">
       <div className="summary-cards"><div><span className="quick-icon red"><Boxes/></span><p>Total item<strong>28</strong></p></div><div><span className="quick-icon amber"><PackageOpen/></span><p>Stok menipis<strong>3 item</strong></p></div><div><span className="quick-icon green"><Check/></span><p>Stok sesuai<strong>25 item</strong></p></div></div>
       <section className="panel">
-        <div className="inventory-toolbar"><div className="categories"><button className="active">Semua</button><button>Bahan baku</button><button>Siap jual</button><button>Pendamping</button></div><div><label><Search/><input placeholder="Cari persediaan"/></label><button className="stock-button"><Plus/> Stok masuk</button></div></div>
+          <div className="inventory-toolbar"><div className="categories"><button className="active">Semua</button><button>Bahan baku</button><button>Siap jual</button><button>Pendamping</button></div><div><label><Search/><input placeholder="Cari persediaan"/></label><button className="stock-button" onClick={()=>setStockModal(true)}><Plus/> Tambah item</button></div></div>
         <table><thead><tr><th>Nama item</th><th>Kelompok</th><th>Stok tersedia</th><th>Keterangan</th><th>Status</th><th></th></tr></thead><tbody>
-          {rows.map(r=><tr key={r[0]}><td><span className="table-item-icon">◫</span><strong>{r[0]}</strong></td><td>{r[1]}</td><td><strong>{r[2]}</strong></td><td>{r[3]}</td><td><span className={`status ${r[4]==="low"?"danger":"success"}`}>{r[4]==="low"?"Menipis":"Aman"}</span></td><td>•••</td></tr>)}
+          {rows.map(r=><tr key={r[0]}><td><span className="table-item-icon">◫</span><strong>{r[0]}</strong></td><td>{r[1]}</td><td><strong>{r[2]}</strong></td><td>{r[3]}</td><td><span className={`status ${r[4]==="low"?"danger":"success"}`}>{r[4]==="low"?"Menipis":"Aman"}</span></td><td><div className="row-actions"><button title="Edit">✎</button><button title="Hapus" onClick={()=>setRows(old=>old.filter(x=>x[0]!==r[0]))}>×</button></div></td></tr>)}
         </tbody></table>
       </section>
     </main>
+    {stockModal && <Modal close={()=>setStockModal(false)}><div className="modal-head"><div><span className="modal-icon"><Boxes/></span><div><h2>Tambah persediaan</h2><p>Buat item dan aturan satuannya.</p></div></div><button onClick={()=>setStockModal(false)}><X/></button></div><div className="crud-form"><label>Nama item<input value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Nama bahan atau barang"/></label><div><label>Kelompok<select><option>Bahan baku</option><option>Siap jual</option><option>Pendamping</option></select></label><label>Satuan dasar<select><option>pak</option><option>pcs</option><option>gram</option><option>liter</option><option>porsi</option></select></label></div><label>Stok minimum<input type="number" placeholder="0"/></label><button onClick={()=>{if(stockName.trim())setRows(old=>[[stockName,"Bahan baku","0 pak","Item baru","low"],...old]);setStockName("");setStockModal(false)}}>Simpan item</button></div></Modal>}
   </>;
 }
 
@@ -342,6 +406,29 @@ function Drawer() {
   </>;
 }
 
+function Reports() {
+  return <>
+    <Topbar title="Laporan" subtitle="Analisa penjualan, produksi, dan operasional outlet."/>
+    <main className="content report-page">
+      <section className="period-bar"><div><button className="active">Hari ini</button><button>Kemarin</button><button>Minggu ini</button><button>Bulan ini</button><button>All time</button></div><button className="custom-period"><Clock3/> Periode khusus</button></section>
+      <section className="report-tabs"><button className="active">Penjualan</button><button>Produk</button><button>Produksi</button><button>Persediaan</button><button>Kas</button></section>
+      <section className="report-kpis"><div><span>Penjualan bersih</span><strong>Rp2.480.000</strong><small>↑ 12,4% dari periode lalu</small></div><div><span>Jumlah transaksi</span><strong>86</strong><small>↑ 8 transaksi</small></div><div><span>Rata-rata transaksi</span><strong>Rp28.837</strong><small>↑ 3,1%</small></div><div><span>Item terjual</span><strong>174</strong><small>2,02 item/transaksi</small></div></section>
+      <section className="two-col report-charts"><div className="panel"><div className="panel-head"><div><h2>Tren penjualan</h2><p>Omzet dan jumlah transaksi per jam</p></div></div><div className="line-chart"><svg viewBox="0 0 600 170" preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a80f16" stopOpacity=".22"/><stop offset="100%" stopColor="#a80f16" stopOpacity="0"/></linearGradient></defs><path d="M0,145 C60,140 65,110 120,118 S185,82 240,94 S300,38 360,61 S430,26 480,48 S545,40 600,18 L600,170 L0,170Z" fill="url(#fill)"/><path d="M0,145 C60,140 65,110 120,118 S185,82 240,94 S300,38 360,61 S430,26 480,48 S545,40 600,18" fill="none" stroke="#a80f16" strokeWidth="4"/></svg><div>{["08","09","10","11","12","13","14","15"].map(x=><span key={x}>{x}:00</span>)}</div></div></div><div className="panel"><div className="panel-head"><div><h2>Menu terlaris</h2><p>Berdasarkan jumlah item</p></div></div>{[["Paket Ayam Nasi",46,100],["Ayam Crispy",32,70],["Rice Bowl",24,52],["Paket Berdua",18,39]].map((r,i)=><div className="rank-row" key={r[0]}><b>{i+1}</b><div><span>{r[0]}<strong>{r[1]} item</strong></span><i><em style={{width:`${r[2]}%`}}/></i></div></div>)}</div></section>
+    </main>
+  </>;
+}
+
+function ActivityLog() {
+  const events=[["14:24","Dina","Menyelesaikan transaksi #A-086","Tunai · Rp42.000"],["13:42","Dina","Memulai produksi batch #B-025","2 pak ayam · 18 potong"],["12:46","Dina","Mencatat cash-out","Belanja outlet · Rp50.000"],["11:18","Raka","Mengoreksi hasil produksi #B-024","Disetujui PIN owner"],["10:05","Dina","Konversi stok","2 sayap → 2 topping rice bowl"],["09:15","Dina","Mencatat cash-in","Uang kembalian · Rp100.000"]];
+  return <><Topbar title="Riwayat aktivitas" subtitle="Jejak lengkap perubahan dan aktivitas operator."/><main className="content"><section className="panel"><div className="log-toolbar"><div className="categories"><button className="active">Semua</button><button>Kasir</button><button>Produksi</button><button>Stok</button><button>Kas</button><button>Approval owner</button></div><label><Search/><input placeholder="Cari aktivitas..."/></label></div><div className="timeline">{events.map((e,i)=><div className="timeline-row" key={e[0]+e[2]}><span className={`timeline-dot t${i%4}`}/><time>{e[0]}</time><div className="avatar small">{e[1].slice(0,2).toUpperCase()}</div><p><strong>{e[1]}</strong><span>{e[2]}</span><small>{e[3]}</small></p><button>Detail</button></div>)}</div></section></main></>;
+}
+
+function SettingsPage() {
+  const [autoPrint,setAutoPrint]=useState(true);
+  const [kitchenPrint,setKitchenPrint]=useState(false);
+  return <><Topbar title="Pengaturan" subtitle="Atur perilaku kasir dan operasional outlet."/><main className="content settings-page"><aside className="settings-nav"><button className="active">Kasir & printer</button><button>Outlet</button><button>Produksi</button><button>Persediaan</button><button>PIN owner</button><button>Operator</button></aside><section className="panel settings-content"><div className="settings-title"><h2>Kasir & printer</h2><p>Konfigurasi pembayaran dan pencetakan struk.</p></div><div className="setting-row"><div><strong>Cetak struk otomatis</strong><span>Struk langsung dicetak setelah pembayaran berhasil.</span></div><button className={`switch ${autoPrint?"on":""}`} onClick={()=>setAutoPrint(!autoPrint)}><i/></button></div><div className="setting-row"><div><strong>Cetak tiket dapur</strong><span>Kirim tiket pesanan ke printer produksi.</span></div><button className={`switch ${kitchenPrint?"on":""}`} onClick={()=>setKitchenPrint(!kitchenPrint)}><i/></button></div><div className="setting-field"><label>Ukuran kertas</label><select defaultValue="58"><option value="58">Thermal 58 mm</option><option value="80">Thermal 80 mm</option></select></div><div className="setting-field"><label>Printer struk</label><select><option>Printer kasir utama</option><option>Belum terhubung</option></select></div><div className="receipt-preview"><span>PRATINJAU STRUK</span><div><b>SABANA FRIED CHICKEN</b><small>Pesanan #A-087 · Takeaway</small><hr/><p>1x Paket Ayam Nasi <em>Rp19.000</em></p><p>1x Ayam Crispy <em>Rp13.000</em></p><hr/><strong>TOTAL <em>Rp32.000</em></strong><small>Terima kasih!</small></div></div><button className="save-settings">Simpan pengaturan</button></section></main></>;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
   return (
@@ -353,6 +440,9 @@ export default function Home() {
         {view === "produksi" && <Production/>}
         {view === "stok" && <Inventory/>}
         {view === "drawer" && <Drawer/>}
+        {view === "laporan" && <Reports/>}
+        {view === "riwayat" && <ActivityLog/>}
+        {view === "pengaturan" && <SettingsPage/>}
       </section>
     </div>
   );
