@@ -236,6 +236,7 @@ function POS() {
   const [channel, setChannel] = useState("Takeaway");
   const [onlineProvider, setOnlineProvider] = useState("GoFood");
   const [cash, setCash] = useState("");
+  const [cashPresetActive, setCashPresetActive] = useState(false);
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
   const addItem = (item: (typeof menuItems)[number], cut?: Cut) => {
     setCart((prev) => [...prev, { id: Date.now(), name: item.name, price: item.price, qty: 1, cut }]);
@@ -279,7 +280,7 @@ function POS() {
           </div>
           <div className="totals"><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div><span>Diskon</span><button>+ Tambah</button></div><div className="grand"><span>Total</span><strong>{money(subtotal)}</strong></div></div>
           <div className="pay-method"><span>Metode pembayaran</span><div><button className="active"><Banknote/>Tunai</button><button><Grid2X2/>QRIS</button></div></div>
-          <button className="pay-button" disabled={!cart.length} onClick={()=>{setCash("");setPayment(true)}}><span>Bayar sekarang</span><strong>{money(subtotal)}</strong></button>
+          <button className="pay-button" disabled={!cart.length} onClick={()=>{setCash("");setCashPresetActive(false);setPayment(true)}}><span>Bayar sekarang</span><strong>{money(subtotal)}</strong></button>
         </aside>
       </div>
       {cutPicker && <Modal close={()=>setCutPicker(null)}>
@@ -289,10 +290,10 @@ function POS() {
       {payment && <Modal close={()=>setPayment(false)}>
         <div className="modal-head"><div><span className="modal-icon"><Banknote/></span><div><h2>Pembayaran tunai</h2><p>Total pesanan #A-087</p></div></div><button onClick={()=>setPayment(false)}><X/></button></div>
         <div className="payment-total"><span>Total tagihan</span><strong>{money(subtotal)}</strong></div>
-        <label className="cash-received"><span>Uang diterima</span><div><small>Rp</small><input inputMode="numeric" autoFocus value={cash} onChange={e=>setCash(e.target.value.replace(/\D/g,""))} placeholder="0"/></div></label>
-        <div className="cash-presets">{[subtotal,50000,100000].filter((v,i,a)=>a.indexOf(v)===i).map(v=><button key={v} onClick={()=>setCash(String(v))}>{v===subtotal?"Uang pas":money(v).replace(",00","")}</button>)}</div>
+        <label className="cash-received"><span>Uang diterima</span><div><small>Rp</small><input inputMode="numeric" autoFocus value={cash} onChange={e=>{setCashPresetActive(false);setCash(e.target.value.replace(/\D/g,""))}} placeholder="0"/></div></label>
+        <div className="cash-presets">{[subtotal,50000,100000].filter((v,i,a)=>a.indexOf(v)===i).map(v=><button key={v} onClick={()=>{setCash(String(v));setCashPresetActive(true)}}>{v===subtotal?"Uang pas":money(v).replace(",00","")}</button>)}</div>
         <div className="numpad">
-          {[1,2,3,4,5,6,7,8,9,"00",0,"⌫"].map(key=><button key={key} onClick={()=>setCash(old=>key==="⌫"?old.slice(0,-1):`${old}${key}`.replace(/^0+/,""))}>{key}</button>)}
+          {[1,2,3,4,5,6,7,8,9,"00",0,"⌫"].map(key=><button key={key} onClick={()=>{setCash(old=>key==="⌫"?(cashPresetActive?"":old.slice(0,-1)):cashPresetActive?String(key):`${old}${key}`.replace(/^0+/,""));setCashPresetActive(false)}}>{key}</button>)}
         </div>
         <div className={`change-box ${Number(cash)>=subtotal?"ready":""}`}><span>Kembalian</span><strong>{Number(cash)>=subtotal?money(Number(cash)-subtotal):"Nominal belum cukup"}</strong></div>
         <button className="primary-wide" disabled={Number(cash)<subtotal} onClick={()=>{setPayment(false);setPaid(true)}}>Konfirmasi pembayaran <ArrowRight/></button>
