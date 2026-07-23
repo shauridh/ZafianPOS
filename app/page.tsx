@@ -34,15 +34,16 @@ import {
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
-type View = "dashboard" | "kasir" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
+type View = "dashboard" | "kasir" | "menu" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
 type CartItem = { id: number; name: string; cut?: Cut; price: number; qty: number };
-type BusinessProfile = { name: string; tagline: string; primaryColor: string; outlet: string };
+type BusinessProfile = { name: string; tagline: string; primaryColor: string; sidebarColor: string; outlet: string };
 
 const defaultBusiness: BusinessProfile = {
   name: "Sabana",
   tagline: "Operation Hub",
   primaryColor: "#a80f16",
+  sidebarColor: "#211d1a",
   outlet: "Outlet Utama",
 };
 
@@ -74,6 +75,7 @@ function Brand({ business }: { business: BusinessProfile }) {
 const nav = [
   { id: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
   { id: "kasir", label: "Kasir", icon: ShoppingBag },
+  { id: "menu", label: "Menu & Kategori", icon: Grid2X2 },
   { id: "produksi", label: "Produksi", icon: CookingPot },
   { id: "stok", label: "Persediaan", icon: Boxes },
   { id: "drawer", label: "Kas & Shift", icon: WalletCards },
@@ -87,7 +89,7 @@ const secondaryNav = [
 
 function Sidebar({ view, setView, business, collapsed, setCollapsed }: { view: View; setView: (view: View) => void; business: BusinessProfile; collapsed: boolean; setCollapsed: (value:boolean)=>void }) {
   return (
-    <aside className={`sidebar ${collapsed?"collapsed":""}`}>
+    <aside className={`sidebar ${collapsed?"collapsed":""}`} style={{background:business.sidebarColor}}>
       <Brand business={business} />
       <button className="collapse-sidebar" onClick={()=>setCollapsed(!collapsed)} title={collapsed?"Buka sidebar":"Tutup sidebar"}>{collapsed?<ChevronRight/>:<ChevronLeft/>}</button>
       <nav>
@@ -244,7 +246,7 @@ function POS() {
   };
   return (
     <>
-      <div className="pos-topbar"><div><h1>Kasir</h1><p>{channel} · Pesanan #A-087</p></div><div><span className="live-dot"/> Shift Dina aktif</div></div>
+      <div className="pos-topbar"><div><h1>Kasir</h1><p>{channel} · Pesanan #A-087</p></div><div className="header-display-stock"><span>STOK ETALASE</span>{Object.entries(cutStock).map(([name,count])=><div key={name}><small>{name}</small><strong>{count}</strong></div>)}</div><div className="pos-shift"><span className="live-dot"/> Shift Dina aktif</div></div>
       <div className="pos-layout">
         <main className="pos-menu">
           <div className="pos-tools">
@@ -259,10 +261,6 @@ function POS() {
                 <Plus size={17}/>
               </button>
             ))}
-          </div>
-          <div className="stock-ribbon">
-            <span><i className="live-dot"/> STOK ETALASE</span>
-            {Object.entries(cutStock).map(([name, count])=><div key={name}>{name}<strong>{count}</strong></div>)}
           </div>
         </main>
         <aside className="cart">
@@ -306,6 +304,30 @@ function POS() {
   );
 }
 
+function MenuManagement() {
+  const [categories,setCategories]=useState(["Paket","Ayam","Rice bowl","Tambahan","Minuman"]);
+  const [activeCategory,setActiveCategory]=useState("Semua");
+  const [products,setProducts]=useState(menuItems);
+  const [modal,setModal]=useState<"menu"|"category"|null>(null);
+  const [newName,setNewName]=useState("");
+  return <>
+    <Topbar title="Menu & Kategori" subtitle="Kelola katalog, harga franchise, dan resep penjualan kasir."/>
+    <main className="content menu-management">
+      <section className="menu-admin-head">
+        <div className="menu-admin-summary"><span className="quick-icon red"><Grid2X2/></span><div><strong>{products.length} menu aktif</strong><small>{categories.length} kategori · sinkron dengan kasir</small></div></div>
+        <div><button className="secondary-action" onClick={()=>setModal("category")}><Plus/> Kategori</button><button className="stock-button" onClick={()=>setModal("menu")}><Plus/> Tambah menu</button></div>
+      </section>
+      <section className="menu-admin-layout">
+        <aside className="panel category-panel"><div className="panel-head"><div><h2>Kategori</h2><p>Urutan tampil di kasir</p></div></div>{["Semua",...categories].map((item,i)=><button className={activeCategory===item?"active":""} key={item} onClick={()=>setActiveCategory(item)}><span>{item}</span><small>{item==="Semua"?products.length:Math.max(1,products.length-i)}</small>{item!=="Semua"&&<b>⋮</b>}</button>)}</aside>
+        <section className="panel product-table"><div className="panel-head"><div><h2>{activeCategory}</h2><p>Produk dapat disusun dan diaktifkan untuk kasir.</p></div><label><Search/><input placeholder="Cari menu..."/></label></div>
+          <table><thead><tr><th>Menu</th><th>Kategori</th><th>Harga jual</th><th>Resep penjualan</th><th>Status</th><th></th></tr></thead><tbody>{products.map((item,i)=><tr key={item.id}><td><div className={`mini-food ${item.color}`}>{item.icon}</div><strong>{item.name}</strong></td><td>{categories[i%categories.length]}</td><td><strong>{money(item.price)}</strong></td><td><span className="recipe-count">{item.id<=4?"3–4 bahan":"1 bahan"}</span></td><td><span className="status success">Aktif</span></td><td><div className="row-actions"><button>✎</button><button onClick={()=>setProducts(old=>old.filter(x=>x.id!==item.id))}>×</button></div></td></tr>)}</tbody></table>
+        </section>
+      </section>
+    </main>
+    {modal && <Modal close={()=>setModal(null)}><div className="modal-head"><div><span className="modal-icon">{modal==="menu"?<ShoppingBag/>:<Grid2X2/>}</span><div><h2>{modal==="menu"?"Tambah menu kasir":"Tambah kategori"}</h2><p>{modal==="menu"?"Atur katalog dan bahan yang dipakai saat terjual.":"Kelompokkan menu agar kasir lebih cepat."}</p></div></div><button onClick={()=>setModal(null)}><X/></button></div><div className="crud-form"><label>Nama {modal==="menu"?"menu":"kategori"}<input value={newName} onChange={e=>setNewName(e.target.value)} placeholder={modal==="menu"?"Contoh: Paket Hemat":"Contoh: Promo"}/></label>{modal==="menu"&&<><div><label>Kategori<select>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Harga franchise<input type="number" placeholder="0"/></label></div><label>Resep penjualan<div className="ingredient-placeholder"><span>Ayam matang — 1 pcs</span><span>Kemasan — 1 pcs</span><button>+ Tambah bahan</button></div></label></>}<button onClick={()=>{if(newName.trim()){if(modal==="category")setCategories(c=>[...c,newName]);else setProducts(p=>[...p,{id:Date.now(),name:newName,note:"Menu baru",price:0,icon:"🍽️",color:"cream"}])}setNewName("");setModal(null)}}>Simpan {modal==="menu"?"menu":"kategori"}</button></div></Modal>}
+  </>;
+}
+
 function Production() {
   const [packs, setPacks] = useState(2);
   const [done, setDone] = useState(false);
@@ -337,8 +359,8 @@ function Production() {
             <button className="primary-wide" onClick={()=>setDone(true)}>Mulai produksi <ArrowRight/></button>
           </div>
           <div className="panel output-card">
-            <div className="eyebrow"><span>02</span> HASIL STANDAR</div>
-            <div className="section-title-action"><div><h2>Komposisi etalase</h2><p>Kelola hasil produksi yang masuk ke etalase.</p></div><button onClick={()=>setRecipeModal(true)}><Plus/> Tambah</button></div>
+            <div className="eyebrow"><span>02</span> HASIL BATCH</div>
+            <div className="section-title-action"><div><h2>Hasil produksi</h2><p>Konversi ayam mentah menjadi komponen matang.</p></div><button onClick={()=>setRecipeModal(true)}><Plus/> Tambah</button></div>
             {recipes.map((item)=><div className="output-row editable" key={item.name}><span className="chicken-symbol">♨</span><div><strong>{item.name}</strong><small>Hasil per 1 pak ayam</small></div><b>{item.qty*packs} {item.unit}</b><button onClick={()=>setRecipes(r=>r.filter(x=>x.name!==item.name))}>×</button></div>)}
           </div>
           <div className="panel oil-cycle">
@@ -444,7 +466,7 @@ function ActivityLog() {
 function SettingsPage({ business, setBusiness }: { business: BusinessProfile; setBusiness: (business:BusinessProfile)=>void }) {
   const [autoPrint,setAutoPrint]=useState(true);
   const [kitchenPrint,setKitchenPrint]=useState(false);
-  return <><Topbar title="Pengaturan" subtitle="Atur profil bisnis, kasir, dan operasional outlet."/><main className="content settings-page"><aside className="settings-nav"><button className="active">Profil bisnis</button><button>Kasir & printer</button><button>Outlet</button><button>Produksi</button><button>Persediaan</button><button>PIN owner</button><button>Operator</button></aside><section className="panel settings-content"><div className="settings-title"><h2>Profil bisnis</h2><p>Identitas ini digunakan di aplikasi dan struk.</p></div><div className="business-fields"><label>Nama bisnis<input value={business.name} onChange={e=>setBusiness({...business,name:e.target.value})}/></label><label>Nama outlet<input value={business.outlet} onChange={e=>setBusiness({...business,outlet:e.target.value})}/></label><label>Tagline<input value={business.tagline} onChange={e=>setBusiness({...business,tagline:e.target.value})}/></label><label>Warna utama<div className="color-field"><input type="color" value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/><input value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/></div></label></div><div className="settings-title sub"><h2>Kasir & printer</h2><p>Konfigurasi pembayaran dan pencetakan struk.</p></div><div className="setting-row"><div><strong>Cetak struk otomatis</strong><span>Struk langsung dicetak setelah pembayaran berhasil.</span></div><button className={`switch ${autoPrint?"on":""}`} onClick={()=>setAutoPrint(!autoPrint)}><i/></button></div><div className="setting-row"><div><strong>Cetak tiket dapur</strong><span>Kirim tiket pesanan ke printer produksi.</span></div><button className={`switch ${kitchenPrint?"on":""}`} onClick={()=>setKitchenPrint(!kitchenPrint)}><i/></button></div><div className="setting-field"><label>Ukuran kertas</label><select defaultValue="58"><option value="58">Thermal 58 mm</option><option value="80">Thermal 80 mm</option></select></div><div className="setting-field"><label>Printer struk</label><select><option>Printer kasir utama</option><option>Belum terhubung</option></select></div><div className="receipt-preview"><span>PRATINJAU STRUK</span><div><b>{business.name.toUpperCase()}</b><small>{business.outlet} · Pesanan #A-087</small><hr/><p>1x Paket Ayam Nasi <em>Rp19.000</em></p><p>1x Ayam Crispy <em>Rp13.000</em></p><hr/><strong>TOTAL <em>Rp32.000</em></strong><small>Terima kasih!</small></div></div><button className="save-settings">Simpan pengaturan</button></section></main></>;
+  return <><Topbar title="Pengaturan" subtitle="Atur profil bisnis, kasir, dan operasional outlet."/><main className="content settings-page"><aside className="settings-nav"><button className="active">Profil bisnis</button><button>Kasir & printer</button><button>Outlet</button><button>Produksi</button><button>Persediaan</button><button>PIN owner</button><button>Operator</button></aside><section className="panel settings-content"><div className="settings-title"><h2>Profil bisnis</h2><p>Identitas ini digunakan di aplikasi dan struk.</p></div><div className="business-fields"><label>Nama bisnis<input value={business.name} onChange={e=>setBusiness({...business,name:e.target.value})}/></label><label>Nama outlet<input value={business.outlet} onChange={e=>setBusiness({...business,outlet:e.target.value})}/></label><label>Tagline<input value={business.tagline} onChange={e=>setBusiness({...business,tagline:e.target.value})}/></label><label>Warna utama<div className="color-field"><input type="color" value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/><input value={business.primaryColor} onChange={e=>setBusiness({...business,primaryColor:e.target.value})}/></div></label><label>Warna sidebar<div className="color-field"><input type="color" value={business.sidebarColor} onChange={e=>setBusiness({...business,sidebarColor:e.target.value})}/><input value={business.sidebarColor} onChange={e=>setBusiness({...business,sidebarColor:e.target.value})}/></div></label></div><div className="settings-title sub"><h2>Kasir & printer</h2><p>Konfigurasi pembayaran dan pencetakan struk.</p></div><div className="setting-row"><div><strong>Cetak struk otomatis</strong><span>Struk langsung dicetak setelah pembayaran berhasil.</span></div><button className={`switch ${autoPrint?"on":""}`} onClick={()=>setAutoPrint(!autoPrint)}><i/></button></div><div className="setting-row"><div><strong>Cetak tiket dapur</strong><span>Kirim tiket pesanan ke printer produksi.</span></div><button className={`switch ${kitchenPrint?"on":""}`} onClick={()=>setKitchenPrint(!kitchenPrint)}><i/></button></div><div className="setting-field"><label>Ukuran kertas</label><select defaultValue="58"><option value="58">Thermal 58 mm</option><option value="80">Thermal 80 mm</option></select></div><div className="setting-field"><label>Printer struk</label><select><option>Printer kasir utama</option><option>Belum terhubung</option></select></div><div className="receipt-preview"><span>PRATINJAU STRUK</span><div><b>{business.name.toUpperCase()}</b><small>{business.outlet} · Pesanan #A-087</small><hr/><p>1x Paket Ayam Nasi <em>Rp19.000</em></p><p>1x Ayam Crispy <em>Rp13.000</em></p><hr/><strong>TOTAL <em>Rp32.000</em></strong><small>Terima kasih!</small></div></div><button className="save-settings">Simpan pengaturan</button></section></main></>;
 }
 
 export default function Home() {
@@ -457,6 +479,7 @@ export default function Home() {
       <section className="workspace">
         {view === "dashboard" && <Dashboard setView={setView}/>}
         {view === "kasir" && <POS/>}
+        {view === "menu" && <MenuManagement/>}
         {view === "produksi" && <Production/>}
         {view === "stok" && <Inventory/>}
         {view === "drawer" && <Drawer/>}
