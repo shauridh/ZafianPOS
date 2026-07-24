@@ -41,6 +41,7 @@ import {
   completeSale,
   createCategory,
   createInventoryItem,
+  correctInventoryStock,
   createOperator,
   createProduct,
   deleteInventoryItem,
@@ -56,6 +57,7 @@ import {
   listCategories,
   listDisplayStock,
   listInventory,
+  listInventoryMovements,
   listOperators,
   listProductComponents,
   listProducts,
@@ -67,6 +69,7 @@ import {
   loadReportDataset,
   openCashShift,
   recordCashMovement,
+  recordInventoryPurchase,
   recordOilEvent,
   reorderCategories,
   renameCategory,
@@ -3484,26 +3487,46 @@ function Inventory() {
     ],
   ]);
   const [stockModal, setStockModal] = useState(false);
+  const [stockAction, setStockAction] = useState<{
+    type: "purchase" | "correction";
+    row: string[];
+  } | null>(null);
+  const [movements, setMovements] = useState<
+    Awaited<ReturnType<typeof listInventoryMovements>>
+  >([]);
+  const [inventoryError, setInventoryError] = useState("");
   const [stockName, setStockName] = useState("");
   const [inventoryFilter, setInventoryFilter] = useState("Semua");
   const [inventorySearch, setInventorySearch] = useState("");
   const [editingRow, setEditingRow] = useState<string[] | null>(null);
+  const reloadInventory = async () => {
+    const [items, recentMovements] = await Promise.all([
+      listInventory(),
+      listInventoryMovements(),
+    ]);
+    setRows(
+      items.map((item) => [
+        item.name,
+        item.kind === "raw_material"
+          ? "Bahan baku"
+          : item.kind === "production_output"
+            ? "Siap jual"
+            : "Pendamping",
+        `${item.stockQuantity} ${item.usageUnit}`,
+        `Minimum ${item.minimumStock} ${item.usageUnit}`,
+        item.stockQuantity <= item.minimumStock ? "low" : "good",
+        item.id,
+        item.purchaseUnit,
+        item.usageUnit,
+        String(item.unitsPerPurchase),
+        String(item.stockQuantity),
+        String(item.purchasePrice ?? ""),
+      ]),
+    );
+    setMovements(recentMovements);
+  };
   useEffect(() => {
-    listInventory()
-      .then((items) => {
-        if (items.length)
-          setRows(
-            items.map((item) => [
-              item.name,
-              item.kind,
-              `${item.stockQuantity} ${item.purchaseUnit}`,
-              `Minimum ${item.minimumStock}`,
-              item.stockQuantity <= item.minimumStock ? "low" : "good",
-              item.id,
-            ]),
-          );
-      })
-      .catch(() => undefined);
+    reloadInventory().catch(() => undefined);
   }, []);
   const visibleRows = rows.filter(
     (row) =>
@@ -3607,6 +3630,18 @@ function Inventory() {
                   </td>
                   <td>
                     <div className="row-actions">
+                      <button
+                        title="Catat pembelian"
+                        onClick={() => setStockAction({ type: "purchase", row: r })}
+                      >
+                        <Plus />
+                      </button>
+                      <button
+                        title="Koreksi stok"
+                        onClick={() => setStockAction({ type: "correction", row: r })}
+                      >
+                        <History />
+                      </button>
                       <button title="Edit" onClick={() => setEditingRow(r)}>
                         ✎
                       </button>
@@ -3623,6 +3658,45 @@ function Inventory() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </section>
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <h2>Riwayat mutasi stok</h2>
+              <p>Pembelian, stok awal, koreksi, produksi, dan penjualan tercatat di sini.</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Waktu</th>
+                <th>Bahan</th>
+                <th>Jenis</th>
+                <th>Perubahan</th>
+                <th>Saldo</th>
+                <th>Catatan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.slice(0, 15).map((movement) => (
+                <tr key={movement.id}>
+                  <td>{new Date(movement.createdAt).toLocaleString("id-ID")}</td>
+                  <td><strong>{movement.itemName}</strong></td>
+                  <td>{movement.kind}</td>
+                  <td>
+                    <strong className={movement.quantityDelta < 0 ? "text-danger" : "text-success"}>
+                      {movement.quantityDelta > 0 ? "+" : ""}{movement.quantityDelta}
+                    </strong>
+                  </td>
+                  <td>{movement.balanceAfter}</td>
+                  <td>{movement.note || "—"}</td>
+                </tr>
+              ))}
+              {!movements.length && (
+                <tr><td colSpan={6}>Belum ada mutasi stok.</td></tr>
+              )}
             </tbody>
           </table>
         </section>
@@ -3649,7 +3723,7 @@ function Inventory() {
               e.preventDefault();
               const form = new FormData(e.currentTarget);
               const stock = Number(form.get("stockQuantity") || 0);
-              const created = await createInventoryItem({
+              await createInventoryItem({
                 name: stockName,
                 sku: String(form.get("sku") || ""),
                 kind: String(form.get("kind")) as "raw_material",
@@ -3669,19 +3743,7 @@ function Inventory() {
                 stockAlertEnabled: form.get("stockAlertEnabled") === "on",
                 allowNegativeStock: form.get("allowNegativeStock") === "on",
               });
-              setRows((old) => [
-                [
-                  stockName,
-                  "Bahan baku",
-                  `${stock} ${String(form.get("purchaseUnit"))}`,
-                  "Item baru",
-                  stock <= Number(form.get("minimumStock") || 0)
-                    ? "low"
-                    : "good",
-                  created.id,
-                ],
-                ...old,
-              ]);
+              await reloadInventory();
               setStockName("");
               setStockModal(false);
             }}
@@ -3812,6 +3874,86 @@ function Inventory() {
               </label>
             </div>
             <button type="submit">Simpan bahan</button>
+          </form>
+        </Modal>
+      )}
+      {stockAction && (
+        <Modal close={() => setStockAction(null)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon"><Boxes /></span>
+              <div>
+                <h2>{stockAction.type === "purchase" ? "Catat pembelian" : "Koreksi stok"}</h2>
+                <p>{stockAction.row[0]} · stok saat ini {stockAction.row[2]}</p>
+              </div>
+            </div>
+            <button onClick={() => setStockAction(null)}><X /></button>
+          </div>
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setInventoryError("");
+              const form = new FormData(event.currentTarget);
+              try {
+                if (stockAction.type === "purchase") {
+                  await recordInventoryPurchase(
+                    stockAction.row[5],
+                    Number(form.get("quantity") || 0),
+                    Number(stockAction.row[8] || 1),
+                    String(form.get("note") || ""),
+                    form.get("purchasePrice") ? Number(form.get("purchasePrice")) : undefined,
+                  );
+                } else {
+                  await correctInventoryStock(
+                    stockAction.row[5],
+                    Number(form.get("quantity") || 0),
+                    String(form.get("note") || ""),
+                  );
+                }
+                await reloadInventory();
+                setStockAction(null);
+              } catch (error) {
+                setInventoryError(error instanceof Error ? error.message : "Stok gagal diperbarui.");
+              }
+            }}
+          >
+            <label>
+              {stockAction.type === "purchase"
+                ? `Jumlah pembelian (${stockAction.row[6]})`
+                : `Hasil hitung stok (${stockAction.row[7]})`}
+              <input
+                name="quantity"
+                type="number"
+                min="0"
+                step="0.001"
+                required
+                defaultValue={stockAction.type === "correction" ? stockAction.row[9] : ""}
+              />
+              {stockAction.type === "purchase" && (
+                <small>
+                  1 {stockAction.row[6]} = {stockAction.row[8]} {stockAction.row[7]}; stok otomatis bertambah dalam {stockAction.row[7]}.
+                </small>
+              )}
+            </label>
+            {stockAction.type === "purchase" && (
+              <label>
+                Harga beli per {stockAction.row[6]} <small>Opsional</small>
+                <input name="purchasePrice" type="number" min="0" defaultValue={stockAction.row[10]} />
+              </label>
+            )}
+            <label>
+              Catatan {stockAction.type === "correction" && <small>Wajib</small>}
+              <input
+                name="note"
+                required={stockAction.type === "correction"}
+                placeholder={stockAction.type === "purchase" ? "Nomor nota / supplier" : "Alasan selisih stok"}
+              />
+            </label>
+            {inventoryError && <p className="form-error">{inventoryError}</p>}
+            <button type="submit">
+              {stockAction.type === "purchase" ? "Tambah ke stok" : "Simpan koreksi"}
+            </button>
           </form>
         </Modal>
       )}

@@ -25,6 +25,17 @@ export type InventoryDraft = {
   allowNegativeStock: boolean;
 };
 
+export type InventoryStockMovement = {
+  id: number;
+  itemId: string;
+  itemName: string;
+  kind: string;
+  quantityDelta: number;
+  balanceAfter: number;
+  note?: string;
+  createdAt: string;
+};
+
 const BUSINESS_KEY = "pos-sabana:business";
 const INVENTORY_KEY = "pos-sabana:inventory";
 const CATEGORY_KEY = "pos-sabana:categories";
@@ -225,7 +236,7 @@ export async function createInventoryItem(draft: InventoryDraft) {
       purchase_unit: draft.purchaseUnit,
       usage_unit: draft.usageUnit,
       units_per_purchase: draft.unitsPerPurchase,
-      stock_quantity: draft.stockQuantity,
+      stock_quantity: 0,
       minimum_stock: draft.minimumStock,
       shelf_life_days: draft.shelfLifeDays ?? null,
       storage_location: draft.storageLocation || null,
@@ -234,8 +245,87 @@ export async function createInventoryItem(draft: InventoryDraft) {
     })
     .select("id")
     .single();
-  if (error) return created;
+  if (error) throw error;
+  if (draft.stockQuantity > 0) {
+    const { error: stockError } = await supabase.rpc("record_inventory_stock", {
+      p_inventory_item_id: data.id,
+      p_operation: "opening",
+      p_quantity: draft.stockQuantity,
+      p_note: "Stok awal saat bahan dibuat",
+      p_purchase_price: draft.purchasePrice ?? null,
+    });
+    if (stockError) throw stockError;
+  }
   return { ...draft, id: data.id };
+}
+
+export async function recordInventoryPurchase(
+  id: string,
+  purchaseUnits: number,
+  unitsPerPurchase: number,
+  note?: string,
+  purchasePrice?: number,
+) {
+  const quantity = purchaseUnits * unitsPerPurchase;
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { quantityDelta: quantity };
+  const { data, error } = await supabase.rpc("record_inventory_stock", {
+    p_inventory_item_id: id,
+    p_operation: "purchase",
+    p_quantity: quantity,
+    p_note: note || `Pembelian ${purchaseUnits} satuan beli`,
+    p_purchase_price: purchasePrice ?? null,
+  });
+  if (error) throw error;
+  return {
+    quantityDelta: Number(data.quantity_delta),
+    balanceAfter: Number(data.balance_after),
+  };
+}
+
+export async function correctInventoryStock(
+  id: string,
+  countedQuantity: number,
+  note: string,
+) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { balanceAfter: countedQuantity };
+  const { data, error } = await supabase.rpc("record_inventory_stock", {
+    p_inventory_item_id: id,
+    p_operation: "correction",
+    p_quantity: countedQuantity,
+    p_note: note,
+    p_purchase_price: null,
+  });
+  if (error) throw error;
+  return {
+    quantityDelta: Number(data.quantity_delta),
+    balanceAfter: Number(data.balance_after),
+  };
+}
+
+export async function listInventoryMovements(limit = 50) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [] as InventoryStockMovement[];
+  const { data, error } = await supabase
+    .from("stock_movements")
+    .select("id,inventory_item_id,kind,quantity_delta,balance_after,note,created_at,inventory_items(name)")
+    .eq("outlet_id", outletId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((movement) => ({
+    id: movement.id,
+    itemId: movement.inventory_item_id,
+    itemName: Array.isArray(movement.inventory_items)
+      ? movement.inventory_items[0]?.name ?? "Bahan"
+      : (movement.inventory_items as { name?: string } | null)?.name ?? "Bahan",
+    kind: movement.kind,
+    quantityDelta: Number(movement.quantity_delta),
+    balanceAfter: Number(movement.balance_after),
+    note: movement.note ?? undefined,
+    createdAt: movement.created_at,
+  }));
 }
 
 export async function updateInventoryItem(id: string, draft: InventoryDraft) {

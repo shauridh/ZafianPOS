@@ -112,6 +112,51 @@ try {
   const flour = await insertInventory("Tepung", "raw_material", 10, "pak");
   const packaging = await insertInventory("Kemasan", "sales_supply", 20);
   const direct = await insertInventory("Saus botol", "direct_sale", 10);
+  const meatball = await insertInventory("Baso mentah", "raw_material", 0);
+  const { data: purchaseResult, error: purchaseError } = await user.rpc(
+    "record_inventory_stock",
+    {
+      p_inventory_item_id: meatball.id,
+      p_operation: "purchase",
+      p_quantity: 100,
+      p_note: "2 pak x 50 butir",
+      p_purchase_price: 25000,
+    },
+  );
+  if (purchaseError) throw purchaseError;
+  ok(
+    "Pembelian menambah stok bahan",
+    Number(purchaseResult.balance_after) === 100 &&
+      (await stock(meatball.id)) === 100,
+  );
+  const { data: correctionResult, error: correctionError } = await user.rpc(
+    "record_inventory_stock",
+    {
+      p_inventory_item_id: meatball.id,
+      p_operation: "correction",
+      p_quantity: 92,
+      p_note: "Hasil hitung fisik",
+      p_purchase_price: null,
+    },
+  );
+  if (correctionError) throw correctionError;
+  ok(
+    "Koreksi menetapkan saldo fisik",
+    Number(correctionResult.quantity_delta) === -8 &&
+      (await stock(meatball.id)) === 92,
+  );
+  const { data: inventoryLedger, error: inventoryLedgerError } = await admin
+    .from("stock_movements")
+    .select("kind,quantity_delta,balance_after")
+    .eq("inventory_item_id", meatball.id)
+    .order("id");
+  if (inventoryLedgerError) throw inventoryLedgerError;
+  ok(
+    "Pembelian dan koreksi tercatat di ledger",
+    inventoryLedger.length === 2 &&
+      inventoryLedger[0].kind === "purchase" &&
+      inventoryLedger[1].kind === "opname",
+  );
   const cuts = {};
   for (const [name, qty] of [
     ["Sayap", 2],
