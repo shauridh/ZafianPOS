@@ -681,6 +681,14 @@ async function ensureInventoryItem(
 
 export async function listProductionMenus(): Promise<{
   menus: ProductionMenuRecord[];
+  inputs: Array<{
+    id: string;
+    menuId: string;
+    name: string;
+    qty: number;
+    unit: string;
+    stock: number;
+  }>;
   outputs: Array<{
     id: string;
     menuId: string;
@@ -691,7 +699,7 @@ export async function listProductionMenus(): Promise<{
   }>;
 }> {
   const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { menus: [], outputs: [] };
+  if (!supabase) return { menus: [], inputs: [], outputs: [] };
   const { data, error } = await supabase
     .from("production_recipes")
     .select(
@@ -702,6 +710,14 @@ export async function listProductionMenus(): Promise<{
     .order("name");
   if (error) throw error;
   const menus: ProductionMenuRecord[] = [];
+  const inputs: Array<{
+    id: string;
+    menuId: string;
+    name: string;
+    qty: number;
+    unit: string;
+    stock: number;
+  }> = [];
   const outputs: Array<{
     id: string;
     menuId: string;
@@ -736,6 +752,18 @@ export async function listProductionMenus(): Promise<{
       inputUnit: row.batch_unit,
     });
     row.production_recipe_lines
+      .filter((line) => line.direction === "input")
+      .forEach((line) =>
+        inputs.push({
+          id: line.id,
+          menuId: row.id,
+          name: line.inventory_items.name,
+          qty: Number(line.quantity),
+          unit: line.inventory_items.usage_unit,
+          stock: Number(line.inventory_items.stock_quantity),
+        }),
+      );
+    row.production_recipe_lines
       .filter((line) => line.direction === "output")
       .forEach((line) =>
         outputs.push({
@@ -748,7 +776,7 @@ export async function listProductionMenus(): Promise<{
         }),
       );
   }
-  return { menus, outputs };
+  return { menus, inputs, outputs };
 }
 
 export async function saveProductionMenu(
@@ -757,11 +785,6 @@ export async function saveProductionMenu(
 ) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return id ?? crypto.randomUUID();
-  const itemId = await ensureInventoryItem(
-    value.inputName,
-    value.inputUnit,
-    "raw_material",
-  );
   let recipeId = id;
   if (recipeId && /^[0-9a-f-]{36}$/i.test(recipeId)) {
     const { error } = await supabase
@@ -784,19 +807,62 @@ export async function saveProductionMenu(
     if (error) throw error;
     recipeId = data.id as string;
   }
-  await supabase
+  if (!id) {
+    await saveProductionInput(recipeId!, {
+      name: value.inputName,
+      qty: 1,
+      unit: value.inputUnit,
+    });
+  }
+  return recipeId!;
+}
+
+export async function saveProductionInput(
+  recipeId: string,
+  value: { name: string; qty: number; unit: string },
+  lineId?: string,
+) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !/^[0-9a-f-]{36}$/i.test(recipeId))
+    return lineId ?? crypto.randomUUID();
+  const itemId = await ensureInventoryItem(
+    value.name,
+    value.unit,
+    "raw_material",
+  );
+  if (lineId && /^[0-9a-f-]{36}$/i.test(lineId)) {
+    const { error } = await supabase
+      .from("production_recipe_lines")
+      .update({ inventory_item_id: itemId, quantity: value.qty })
+      .eq("id", lineId)
+      .eq("recipe_id", recipeId)
+      .eq("direction", "input");
+    if (error) throw error;
+    return lineId;
+  }
+  const { data, error } = await supabase
+    .from("production_recipe_lines")
+    .insert({
+      recipe_id: recipeId,
+      inventory_item_id: itemId,
+      direction: "input",
+      quantity: value.qty,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+export async function deleteProductionInput(id: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !/^[0-9a-f-]{36}$/i.test(id)) return;
+  const { error } = await supabase
     .from("production_recipe_lines")
     .delete()
-    .eq("recipe_id", recipeId)
+    .eq("id", id)
     .eq("direction", "input");
-  const { error } = await supabase.from("production_recipe_lines").insert({
-    recipe_id: recipeId,
-    inventory_item_id: itemId,
-    direction: "input",
-    quantity: 1,
-  });
   if (error) throw error;
-  return recipeId!;
 }
 
 export async function deleteProductionMenu(id: string) {

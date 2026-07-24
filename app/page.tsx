@@ -49,6 +49,7 @@ import {
   deleteCategory,
   deleteProductionMenu,
   deleteProductionOutput,
+  deleteProductionInput,
   getActiveOilCycle,
   getActiveShift,
   getOperatorSession,
@@ -74,6 +75,7 @@ import {
   saveProductComponents,
   saveProductionMenu,
   saveProductionOutput,
+  saveProductionInput,
   sendOperatorPasswordLink,
   setOwnerPin,
   signInOperator,
@@ -2337,6 +2339,32 @@ function Production() {
     { id: "rice", name: "Masak nasi", inputName: "Beras", inputUnit: "kg" },
   ]);
   const [activeMenu, setActiveMenu] = useState("fried-chicken");
+  const [inputs, setInputs] = useState([
+    {
+      id: "chicken-raw",
+      menuId: "fried-chicken",
+      name: "Ayam mentah",
+      qty: 1,
+      unit: "pak",
+      stock: 12,
+    },
+    {
+      id: "flour",
+      menuId: "fried-chicken",
+      name: "Tepung",
+      qty: 1 / 3,
+      unit: "pak",
+      stock: 3,
+    },
+    {
+      id: "rice-raw",
+      menuId: "rice",
+      name: "Beras",
+      qty: 1,
+      unit: "kg",
+      stock: 10,
+    },
+  ]);
   const [outputs, setOutputs] = useState([
     {
       id: "wing",
@@ -2383,6 +2411,19 @@ function Production() {
     mode: "add" | "edit";
     id?: string;
   } | null>(null);
+  const [inputModal, setInputModal] = useState<{
+    mode: "add" | "edit";
+    id?: string;
+  } | null>(null);
+  const [displayOverview, setDisplayOverview] = useState<
+    Array<{
+      id: string;
+      itemName: string;
+      quantity: number;
+      ageMinutes: number;
+      limitMinutes: number;
+    }>
+  >([]);
   const [menuModal, setMenuModal] = useState<{
     mode: "add" | "edit";
     id?: string;
@@ -2407,10 +2448,18 @@ function Production() {
       .then((data) => {
         if (!data.menus.length) return;
         setProductionMenus(data.menus);
+        setInputs(data.inputs);
         setOutputs(data.outputs);
         setActiveMenu(data.menus[0].id);
       })
       .catch(() => undefined);
+  }, []);
+  const refreshDisplayOverview = () =>
+    listDisplayStock()
+      .then(setDisplayOverview)
+      .catch(() => undefined);
+  useEffect(() => {
+    refreshDisplayOverview();
   }, []);
   useEffect(() => {
     getActiveOilCycle()
@@ -2450,6 +2499,7 @@ function Production() {
     productionMenus.find((item) => item.id === activeMenu) ??
     productionMenus[0]!;
   const activeOutputs = outputs.filter((item) => item.menuId === activeMenu);
+  const activeInputs = inputs.filter((item) => item.menuId === activeMenu);
   const estimatedTotal = activeOutputs.reduce(
     (sum, item) => sum + item.qty * packs,
     0,
@@ -2473,6 +2523,13 @@ function Production() {
             : item,
         ),
       );
+      setInputs((current) =>
+        current.map((item) =>
+          item.menuId === activeMenu
+            ? { ...item, stock: item.stock - item.qty * packs }
+            : item,
+        ),
+      );
       setBatches((current) => [
         {
           time: new Date().toLocaleTimeString("id-ID", {
@@ -2488,6 +2545,7 @@ function Production() {
         ...current,
       ]);
       setDone({ batch: batchNumber, total: completed.totalOutput });
+      await refreshDisplayOverview();
     } catch (error) {
       setBatchError(
         error instanceof Error ? error.message : "Batch gagal disimpan.",
@@ -2545,6 +2603,9 @@ function Production() {
                     setOutputs((items) =>
                       items.filter((item) => item.menuId !== menu.id),
                     );
+                    setInputs((items) =>
+                      items.filter((item) => item.menuId !== menu.id),
+                    );
                     setActiveMenu(remaining[0].id);
                   }}
                 >
@@ -2558,29 +2619,58 @@ function Production() {
               </button>
               <div>
                 <strong>{packs}</strong>
-                <span>
-                  {menu.inputUnit} {menu.inputName.toLowerCase()}
-                </span>
+                <span>{menu.inputUnit} produksi</span>
               </div>
               <button onClick={() => setPacks(packs + 1)}>
                 <Plus />
               </button>
             </div>
             <div className="recipe-preview">
-              <h3>Kebutuhan otomatis</h3>
-              <div>
-                <span>{menu.inputName}</span>
-                <strong>
-                  {packs} {menu.inputUnit}
-                </strong>
+              <div className="recipe-preview-head">
+                <h3>Kebutuhan otomatis</h3>
+                <button onClick={() => setInputModal({ mode: "add" })}>
+                  <Plus /> Bahan
+                </button>
               </div>
-              {activeMenu === "fried-chicken" && (
-                <div>
-                  <span>Tepung</span>
+              {activeInputs.map((item) => (
+                <div key={item.id}>
+                  <span>
+                    {item.name}
+                    <small>
+                      Stok {item.stock.toLocaleString("id-ID")} {item.unit}
+                    </small>
+                  </span>
                   <strong>
-                    {(packs / 3).toFixed(2).replace(".", ",")} pak
+                    {(item.qty * packs).toLocaleString("id-ID", {
+                      maximumFractionDigits: 3,
+                    })}{" "}
+                    {item.unit}
                   </strong>
+                  <span className="inline-row-actions">
+                    <button
+                      onClick={() =>
+                        setInputModal({ mode: "edit", id: item.id })
+                      }
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await deleteProductionInput(item.id);
+                        setInputs((current) =>
+                          current.filter((entry) => entry.id !== item.id),
+                        );
+                      }}
+                    >
+                      Hapus
+                    </button>
+                  </span>
                 </div>
+              ))}
+              {!activeInputs.length && (
+                <p className="form-error">
+                  Tambahkan minimal satu bahan sebelum produksi.
+                </p>
               )}
               <div>
                 <span>Estimasi hasil</span>
@@ -2592,7 +2682,9 @@ function Production() {
             )}
             <button
               className="primary-wide"
-              disabled={!activeOutputs.length || batchBusy}
+              disabled={
+                !activeInputs.length || !activeOutputs.length || batchBusy
+              }
               onClick={startBatch}
             >
               {batchBusy ? "Menyimpan batch..." : "Selesaikan & tambah hasil"}{" "}
@@ -2714,6 +2806,61 @@ function Production() {
             </div>
           </div>
         </section>
+        <section className="panel display-overview">
+          <div className="panel-head">
+            <div>
+              <h2>Stok etalase siap jual</h2>
+              <p>
+                Semua hasil produksi: ayam, bakso, chicken roll, kentang, nasi,
+                dan produk lainnya.
+              </p>
+            </div>
+            <button onClick={refreshDisplayOverview}>Muat ulang stok</button>
+          </div>
+          <div className="display-overview-grid">
+            {displayOverview.map((item) => {
+              const state =
+                item.quantity <= 0
+                  ? "empty"
+                  : item.ageMinutes >= item.limitMinutes
+                    ? "danger"
+                    : item.ageMinutes >= item.limitMinutes * 0.75
+                      ? "warning"
+                      : "safe";
+              return (
+                <article
+                  className={`display-stock-card ${state}`}
+                  key={item.id}
+                >
+                  <div>
+                    <strong>{item.itemName}</strong>
+                    <small>
+                      Batch tertua {item.ageMinutes} menit · batas{" "}
+                      {item.limitMinutes} menit
+                    </small>
+                  </div>
+                  <b>{item.quantity.toLocaleString("id-ID")}</b>
+                  <span>
+                    {state === "safe"
+                      ? "Aman"
+                      : state === "warning"
+                        ? "Perlu perhatian"
+                        : state === "danger"
+                          ? "Lewat batas"
+                          : "Habis"}
+                  </span>
+                </article>
+              );
+            })}
+            {!displayOverview.length && (
+              <div className="empty-production">
+                <PackageOpen />
+                <strong>Etalase masih kosong</strong>
+                <span>Selesaikan batch untuk menambahkan stok siap jual.</span>
+              </div>
+            )}
+          </div>
+        </section>
         <section className="panel recent-batches">
           <div className="panel-head">
             <div>
@@ -2729,7 +2876,7 @@ function Production() {
               <tr>
                 <th>Waktu</th>
                 <th>Batch</th>
-                <th>Ayam mentah</th>
+                <th>Input produksi</th>
                 <th>Hasil</th>
                 <th>Operator</th>
                 <th>Status</th>
@@ -2774,12 +2921,34 @@ function Production() {
             <div>
               <strong>+{done.total} unit</strong>
               <small>
-                {packs} {menu.inputUnit} {menu.inputName.toLowerCase()}
+                {packs} {menu.inputUnit} produksi
               </small>
             </div>
             <button onClick={() => setDone(null)}>Kembali ke produksi</button>
           </div>
         </Modal>
+      )}
+      {inputModal && (
+        <ProductionInputModal
+          mode={inputModal.mode}
+          initial={inputs.find((item) => item.id === inputModal.id)}
+          close={() => setInputModal(null)}
+          save={async (value) => {
+            const id = await saveProductionInput(
+              activeMenu,
+              value,
+              inputModal.mode === "edit" ? inputModal.id : undefined,
+            );
+            setInputs((current) =>
+              inputModal.mode === "edit"
+                ? current.map((item) =>
+                    item.id === inputModal.id ? { ...item, ...value } : item,
+                  )
+                : [...current, { ...value, id, menuId: activeMenu, stock: 0 }],
+            );
+            setInputModal(null);
+          }}
+        />
       )}
       {outputModal && (
         <ProductionOutputModal
@@ -3009,6 +3178,85 @@ function Production() {
   );
 }
 
+function ProductionInputModal({
+  mode,
+  initial,
+  close,
+  save,
+}: {
+  mode: "add" | "edit";
+  initial?: { name: string; qty: number; unit: string };
+  close: () => void;
+  save: (value: { name: string; qty: number; unit: string }) => void;
+}) {
+  return (
+    <Modal close={close}>
+      <div className="modal-head">
+        <div>
+          <span className="modal-icon">
+            <Boxes />
+          </span>
+          <div>
+            <h2>{mode === "edit" ? "Edit" : "Tambah"} bahan produksi</h2>
+            <p>Atur bahan yang berkurang setiap batch diselesaikan.</p>
+          </div>
+        </div>
+        <button onClick={close}>
+          <X />
+        </button>
+      </div>
+      <form
+        className="crud-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          save({
+            name: String(form.get("name")),
+            qty: Number(form.get("qty") || 1),
+            unit: String(form.get("unit")),
+          });
+        }}
+      >
+        <label>
+          Nama bahan
+          <input
+            name="name"
+            required
+            defaultValue={initial?.name}
+            placeholder="Contoh: Bakso mentah"
+          />
+        </label>
+        <div>
+          <label>
+            Jumlah per batch
+            <input
+              name="qty"
+              required
+              min="0.001"
+              step="0.001"
+              type="number"
+              defaultValue={initial?.qty ?? 1}
+            />
+          </label>
+          <label>
+            Satuan pemakaian
+            <select name="unit" defaultValue={initial?.unit ?? "pcs"}>
+              <option>pak</option>
+              <option>pcs</option>
+              <option>butir</option>
+              <option>kg</option>
+              <option>gram</option>
+              <option>pouch</option>
+              <option>liter</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit">Simpan bahan produksi</button>
+      </form>
+    </Modal>
+  );
+}
+
 function ProductionOutputModal({
   mode,
   initial,
@@ -3073,6 +3321,7 @@ function ProductionOutputModal({
             Satuan
             <select name="unit" defaultValue={initial?.unit ?? "pcs"}>
               <option>pcs</option>
+              <option>butir</option>
               <option>porsi</option>
               <option>gram</option>
               <option>liter</option>
@@ -3119,7 +3368,10 @@ function ProductionMenuModal({
           const form = new FormData(event.currentTarget);
           save({
             name: String(form.get("name")),
-            inputName: String(form.get("inputName")),
+            inputName:
+              mode === "edit"
+                ? (initial?.inputName ?? "Bahan baku")
+                : String(form.get("inputName")),
             inputUnit: String(form.get("inputUnit")),
           });
         }}
@@ -3134,19 +3386,23 @@ function ProductionMenuModal({
           />
         </label>
         <div>
+          {mode === "add" && (
+            <label>
+              Bahan pertama
+              <input
+                name="inputName"
+                required
+                defaultValue={initial?.inputName}
+                placeholder="Contoh: Bakso mentah"
+              />
+            </label>
+          )}
           <label>
-            Bahan baku utama
-            <input
-              name="inputName"
-              required
-              defaultValue={initial?.inputName}
-              placeholder="Contoh: Kulit mentah"
-            />
-          </label>
-          <label>
-            Satuan input
+            Satuan batch
             <select name="inputUnit" defaultValue={initial?.inputUnit ?? "pak"}>
+              <option>batch</option>
               <option>pak</option>
+              <option>tray</option>
               <option>kg</option>
               <option>pouch</option>
               <option>liter</option>

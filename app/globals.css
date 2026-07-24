@@ -1893,6 +1893,84 @@ button {
   font-size: 9px;
   padding: 5px 0;
 }
+.recipe-preview .recipe-preview-head {
+  align-items: center;
+  padding-bottom: 7px;
+}
+.recipe-preview-head h3 {
+  margin: 0;
+}
+.recipe-preview-head button,
+.inline-row-actions button {
+  border: 0;
+  background: none;
+  color: var(--red);
+  font-size: 8px;
+  font-weight: 700;
+}
+.recipe-preview div > span:first-child small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 7px;
+}
+.inline-row-actions {
+  display: flex;
+  gap: 2px;
+}
+.display-overview {
+  margin: 14px 0;
+}
+.display-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+.display-stock-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.display-stock-card strong,
+.display-stock-card small {
+  display: block;
+}
+.display-stock-card strong {
+  font-size: 10px;
+}
+.display-stock-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 8px;
+}
+.display-stock-card b {
+  font: 800 22px Manrope;
+}
+.display-stock-card > span {
+  grid-column: 1 / -1;
+  width: fit-content;
+  border-radius: 20px;
+  padding: 3px 7px;
+  font-size: 8px;
+  font-weight: 700;
+}
+.display-stock-card.safe > span {
+  background: #e8f6ed;
+  color: #197243;
+}
+.display-stock-card.warning > span {
+  background: #fff3ce;
+  color: #8a6500;
+}
+.display-stock-card.danger > span,
+.display-stock-card.empty > span {
+  background: #ffebe7;
+  color: #b42a1c;
+}
 .primary-wide {
   margin-top: 15px;
   border: 0;
