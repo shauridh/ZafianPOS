@@ -33,12 +33,13 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { createCategory, createInventoryItem, createProduct, listCategories, listInventory, loadBusinessProfile, saveBusinessProfile } from "../lib/repository";
+import { createCategory, createInventoryItem, createProduct, listCategories, listInventory, listProducts, loadBusinessProfile, saveBusinessProfile, uploadMenuImage } from "../lib/repository";
 
 type View = "dashboard" | "kasir" | "menu" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
 type CartItem = { id: number; name: string; cut?: Cut; price: number; qty: number };
 type BusinessProfile = { name: string; tagline: string; primaryColor: string; sidebarColor: string; outlet: string };
+type MenuItem = { id: number | string; name: string; note: string; price: number; icon: string; color: string; image?: string };
 
 const defaultBusiness: BusinessProfile = {
   name: "Sabana",
@@ -53,7 +54,7 @@ const money = (value: number) =>
 
 const cutStock: Record<Cut, number> = { Dada: 6, "Paha atas": 4, "Paha bawah": 4, Sayap: 4 };
 
-const menuItems = [
+const menuItems: MenuItem[] = [
   { id: 1, name: "Ayam Crispy", note: "1 potong", price: 13000, icon: "🍗", color: "sun" },
   { id: 2, name: "Paket Ayam Nasi", note: "Ayam + nasi", price: 19000, icon: "🍱", color: "cream" },
   { id: 3, name: "Rice Bowl", note: "Ayam suwir", price: 16000, icon: "🥣", color: "orange" },
@@ -227,11 +228,12 @@ function Modal({ children, close }: { children: React.ReactNode; close: () => vo
 }
 
 function POS() {
+  const [catalog,setCatalog]=useState(menuItems);
   const [cart, setCart] = useState<CartItem[]>([
     { id: 101, name: "Paket Ayam Nasi", cut: "Dada", price: 19000, qty: 1 },
     { id: 102, name: "Ayam Crispy", cut: "Paha atas", price: 13000, qty: 1 },
   ]);
-  const [cutPicker, setCutPicker] = useState<(typeof menuItems)[number] | null>(null);
+  const [cutPicker, setCutPicker] = useState<MenuItem | null>(null);
   const [paid, setPaid] = useState(false);
   const [payment, setPayment] = useState(false);
   const [channel, setChannel] = useState("Takeaway");
@@ -239,12 +241,17 @@ function POS() {
   const [cash, setCash] = useState("");
   const [cashPresetActive, setCashPresetActive] = useState(false);
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
-  const addItem = (item: (typeof menuItems)[number], cut?: Cut) => {
+  useEffect(()=>{listProducts<Record<string, unknown>>([]).then(items=>{if(items.length)setCatalog(items.map((item,index)=>({
+    id:String(item.id ?? index), name:String(item.name ?? "Menu"), note:String(item.description ?? "Menu kasir"),
+    price:Number(item.sale_price ?? item.salePrice ?? 0), icon:"🍽️", color:"cream",
+    image:String(item.image_path ?? item.imagePath ?? "") || undefined,
+  })))}).catch(()=>undefined)},[]);
+  const addItem = (item: MenuItem, cut?: Cut) => {
     setCart((prev) => [...prev, { id: Date.now(), name: item.name, price: item.price, qty: 1, cut }]);
     setCutPicker(null);
   };
-  const clickMenu = (item: (typeof menuItems)[number]) => {
-    if ([1,2,4].includes(item.id)) setCutPicker(item); else addItem(item);
+  const clickMenu = (item: MenuItem) => {
+    if ([1,2,4].includes(Number(item.id))) setCutPicker(item); else addItem(item);
   };
   return (
     <>
@@ -256,9 +263,9 @@ function POS() {
             <label><Search size={18}/><input placeholder="Cari menu..." /></label>
           </div>
           <div className="menu-grid">
-            {menuItems.map(item => (
+            {catalog.map(item => (
               <button className="menu-card" key={item.id} onClick={() => clickMenu(item)}>
-                <span className={`food-art ${item.color}`}>{item.icon}</span>
+                <span className={`food-art ${item.color}`}>{item.image?<img src={item.image} alt={item.name}/>:item.icon}</span>
                 <div><strong>{item.name}</strong><small>{item.note}</small><b>{money(item.price)}</b></div>
                 <Plus size={17}/>
               </button>
@@ -312,6 +319,10 @@ function MenuManagement() {
   const [products,setProducts]=useState(menuItems);
   const [modal,setModal]=useState<"menu"|"category"|null>(null);
   const [newName,setNewName]=useState("");
+  const [menuImage,setMenuImage]=useState("");
+  const [menuPrice,setMenuPrice]=useState("");
+  const [menuCategory,setMenuCategory]=useState(categories[0]);
+  const [imageError,setImageError]=useState("");
   useEffect(()=>{listCategories(categories).then(setCategories).catch(()=>undefined)},[]);
   return <>
     <Topbar title="Menu & Kategori" subtitle="Kelola katalog, harga franchise, dan resep penjualan kasir."/>
@@ -323,11 +334,11 @@ function MenuManagement() {
       <section className="menu-admin-layout">
         <aside className="panel category-panel"><div className="panel-head"><div><h2>Kategori</h2><p>Urutan tampil di kasir</p></div></div>{["Semua",...categories].map((item,i)=><button className={activeCategory===item?"active":""} key={item} onClick={()=>setActiveCategory(item)}><span>{item}</span><small>{item==="Semua"?products.length:Math.max(1,products.length-i)}</small>{item!=="Semua"&&<b>⋮</b>}</button>)}</aside>
         <section className="panel product-table"><div className="panel-head"><div><h2>{activeCategory}</h2><p>Produk dapat disusun dan diaktifkan untuk kasir.</p></div><label><Search/><input placeholder="Cari menu..."/></label></div>
-          <table><thead><tr><th>Menu</th><th>Kategori</th><th>Harga jual</th><th>Resep penjualan</th><th>Status</th><th></th></tr></thead><tbody>{products.map((item,i)=><tr key={item.id}><td><div className={`mini-food ${item.color}`}>{item.icon}</div><strong>{item.name}</strong></td><td>{categories[i%categories.length]}</td><td><strong>{money(item.price)}</strong></td><td><span className="recipe-count">{item.id<=4?"3–4 bahan":"1 bahan"}</span></td><td><span className="status success">Aktif</span></td><td><div className="row-actions"><button>✎</button><button onClick={()=>setProducts(old=>old.filter(x=>x.id!==item.id))}>×</button></div></td></tr>)}</tbody></table>
+          <table><thead><tr><th>Menu</th><th>Kategori</th><th>Harga jual</th><th>Resep penjualan</th><th>Status</th><th></th></tr></thead><tbody>{products.map((item,i)=><tr key={item.id}><td><div className={`mini-food ${item.color}`}>{item.image?<img src={item.image} alt={item.name}/>:item.icon}</div><strong>{item.name}</strong></td><td>{categories[i%categories.length]}</td><td><strong>{money(item.price)}</strong></td><td><span className="recipe-count">{Number(item.id)<=4?"3–4 bahan":"1 bahan"}</span></td><td><span className="status success">Aktif</span></td><td><div className="row-actions"><button>✎</button><button onClick={()=>setProducts(old=>old.filter(x=>x.id!==item.id))}>×</button></div></td></tr>)}</tbody></table>
         </section>
       </section>
     </main>
-    {modal && <Modal close={()=>setModal(null)}><div className="modal-head"><div><span className="modal-icon">{modal==="menu"?<ShoppingBag/>:<Grid2X2/>}</span><div><h2>{modal==="menu"?"Tambah menu kasir":"Tambah kategori"}</h2><p>{modal==="menu"?"Atur katalog dan bahan yang dipakai saat terjual.":"Kelompokkan menu agar kasir lebih cepat."}</p></div></div><button onClick={()=>setModal(null)}><X/></button></div><div className="crud-form"><label>Nama {modal==="menu"?"menu":"kategori"}<input value={newName} onChange={e=>setNewName(e.target.value)} placeholder={modal==="menu"?"Contoh: Paket Hemat":"Contoh: Promo"}/></label>{modal==="menu"&&<><div><label>Kategori<select>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Harga franchise<input type="number" placeholder="0"/></label></div><label>Resep penjualan<div className="ingredient-placeholder"><span>Ayam matang — 1 pcs</span><span>Kemasan — 1 pcs</span><button>+ Tambah bahan</button></div></label></>}<button onClick={async()=>{if(newName.trim()){if(modal==="category"){await createCategory(newName,categories);setCategories(c=>[...c,newName])}else{await createProduct({name:newName,salePrice:0,categoryName:categories[0]});setProducts(p=>[...p,{id:Date.now(),name:newName,note:"Menu baru",price:0,icon:"🍽️",color:"cream"}])}}setNewName("");setModal(null)}}>Simpan {modal==="menu"?"menu":"kategori"}</button></div></Modal>}
+    {modal && <Modal close={()=>setModal(null)}><div className="modal-head"><div><span className="modal-icon">{modal==="menu"?<ShoppingBag/>:<Grid2X2/>}</span><div><h2>{modal==="menu"?"Tambah menu kasir":"Tambah kategori"}</h2><p>{modal==="menu"?"Atur katalog dan bahan yang dipakai saat terjual.":"Kelompokkan menu agar kasir lebih cepat."}</p></div></div><button onClick={()=>setModal(null)}><X/></button></div><div className="crud-form">{modal==="menu"&&<><label className="image-upload">{menuImage?<img src={menuImage} alt="Pratinjau menu"/>:<span><ShoppingBag/>Upload gambar menu<small>JPG, PNG, atau WebP, maks. 2 MB</small></span>}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setImageError("");try{setMenuImage(await uploadMenuImage(file))}catch(error){setImageError(error instanceof Error?error.message:"Gambar gagal diunggah.")}}}/></label>{imageError&&<small className="form-error">{imageError}</small>}</>}<label>Nama {modal==="menu"?"menu":"kategori"}<input value={newName} onChange={e=>setNewName(e.target.value)} placeholder={modal==="menu"?"Contoh: Paket Hemat":"Contoh: Promo"}/></label>{modal==="menu"&&<><div><label>Kategori<select value={menuCategory} onChange={e=>setMenuCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Harga franchise<input type="number" value={menuPrice} onChange={e=>setMenuPrice(e.target.value)} placeholder="0"/></label></div><label>Resep penjualan<div className="ingredient-placeholder"><span>Ayam matang — 1 pcs</span><span>Kemasan — 1 pcs</span><button>+ Tambah bahan</button></div></label></>}<button onClick={async()=>{if(newName.trim()){if(modal==="category"){await createCategory(newName,categories);setCategories(c=>[...c,newName])}else{const price=Number(menuPrice||0);await createProduct({name:newName,salePrice:price,categoryName:menuCategory,imagePath:menuImage});setProducts(p=>[...p,{id:Date.now(),name:newName,note:"Menu baru",price,icon:"🍽️",color:"cream",image:menuImage||undefined}])}}setNewName("");setMenuImage("");setMenuPrice("");setImageError("");setModal(null)}}>Simpan {modal==="menu"?"menu":"kategori"}</button></div></Modal>}
   </>;
 }
 
@@ -402,7 +413,6 @@ function Inventory() {
   ]);
   const [stockModal,setStockModal]=useState(false);
   const [stockName,setStockName]=useState("");
-  const [stockImage,setStockImage]=useState("");
   useEffect(()=>{listInventory().then(items=>{if(items.length)setRows(items.map(item=>[item.name,item.kind,`${item.stockQuantity} ${item.purchaseUnit}`,`Minimum ${item.minimumStock}`,item.stockQuantity<=item.minimumStock?"low":"good"]))}).catch(()=>undefined)},[]);
   return <>
     <Topbar title="Persediaan" subtitle="Stok bahan, etalase, dan barang pendamping."/>
@@ -417,8 +427,7 @@ function Inventory() {
     </main>
     {stockModal && <Modal close={()=>setStockModal(false)}>
       <div className="modal-head"><div><span className="modal-icon"><Boxes/></span><div><h2>Tambah bahan</h2><p>Atur identitas, satuan, konversi, dan batas stok.</p></div></div><button onClick={()=>setStockModal(false)}><X/></button></div>
-      <form className="crud-form stock-crud" onSubmit={async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const stock=Number(form.get("stockQuantity")||0);await createInventoryItem({name:stockName,sku:String(form.get("sku")||""),kind:String(form.get("kind")) as "raw_material",supplierName:String(form.get("supplierName")||""),purchasePrice:form.get("purchasePrice")?Number(form.get("purchasePrice")):undefined,purchaseUnit:String(form.get("purchaseUnit")),usageUnit:String(form.get("usageUnit")),unitsPerPurchase:Number(form.get("unitsPerPurchase")||1),stockQuantity:stock,minimumStock:Number(form.get("minimumStock")||0),shelfLifeDays:form.get("shelfLifeDays")?Number(form.get("shelfLifeDays")):undefined,storageLocation:String(form.get("storageLocation")||""),stockAlertEnabled:form.get("stockAlertEnabled")==="on",allowNegativeStock:form.get("allowNegativeStock")==="on"});setRows(old=>[[stockName,"Bahan baku",`${stock} ${String(form.get("purchaseUnit"))}`,"Item baru",stock<=Number(form.get("minimumStock")||0)?"low":"good"],...old]);setStockName("");setStockImage("");setStockModal(false)}}>
-        <label className="image-upload">{stockImage?<img src={stockImage} alt="Pratinjau bahan"/>:<span><PackageOpen/>Upload gambar bahan<small>PNG atau JPG, maks. 2 MB</small></span>}<input type="file" accept="image/png,image/jpeg" onChange={e=>{const file=e.target.files?.[0];if(file)setStockImage(URL.createObjectURL(file))}}/></label>
+      <form className="crud-form stock-crud" onSubmit={async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const stock=Number(form.get("stockQuantity")||0);await createInventoryItem({name:stockName,sku:String(form.get("sku")||""),kind:String(form.get("kind")) as "raw_material",supplierName:String(form.get("supplierName")||""),purchasePrice:form.get("purchasePrice")?Number(form.get("purchasePrice")):undefined,purchaseUnit:String(form.get("purchaseUnit")),usageUnit:String(form.get("usageUnit")),unitsPerPurchase:Number(form.get("unitsPerPurchase")||1),stockQuantity:stock,minimumStock:Number(form.get("minimumStock")||0),shelfLifeDays:form.get("shelfLifeDays")?Number(form.get("shelfLifeDays")):undefined,storageLocation:String(form.get("storageLocation")||""),stockAlertEnabled:form.get("stockAlertEnabled")==="on",allowNegativeStock:form.get("allowNegativeStock")==="on"});setRows(old=>[[stockName,"Bahan baku",`${stock} ${String(form.get("purchaseUnit"))}`,"Item baru",stock<=Number(form.get("minimumStock")||0)?"low":"good"],...old]);setStockName("");setStockModal(false)}}>
         <div><label>Nama bahan<input required value={stockName} onChange={e=>setStockName(e.target.value)} placeholder="Contoh: Ayam mentah"/></label><label>Kode/SKU <small>Opsional</small><input name="sku" placeholder="BHN-001"/></label></div>
         <div><label>Kelompok<select name="kind"><option value="raw_material">Bahan baku</option><option value="production_output">Hasil produksi</option><option value="sales_supply">Pendamping</option><option value="direct_sale">Barang langsung jual</option></select></label><label>Supplier <small>Opsional</small><input name="supplierName" placeholder="Pilih atau tulis supplier"/></label></div>
         <div><label>Harga beli <small>Opsional</small><div className="price-input"><span>Rp</span><input name="purchasePrice" type="number" placeholder="0"/></div></label><label>Satuan beli<select name="purchaseUnit"><option>pak</option><option>pouch</option><option>karton</option><option>karung</option><option>kg</option></select></label></div>
