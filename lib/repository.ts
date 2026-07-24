@@ -495,6 +495,7 @@ export type ProductComponentDraft = {
   inventoryName: string;
   quantity: number;
   isCutChoice: boolean;
+  cutCode?: "Dada" | "Sayap" | "Paha atas" | "Paha bawah";
 };
 
 export async function listProductComponents(productId: string) {
@@ -507,7 +508,9 @@ export async function listProductComponents(productId: string) {
     return local[productId] ?? [];
   const { data, error } = await supabase
     .from("product_components")
-    .select("inventory_item_id,quantity,is_cut_choice,inventory_items(name)")
+    .select(
+      "inventory_item_id,quantity,is_cut_choice,cut_code,inventory_items(name)",
+    )
     .eq("product_id", productId);
   if (error) return local[productId] ?? [];
   return (data ?? []).map((row) => ({
@@ -517,6 +520,7 @@ export async function listProductComponents(productId: string) {
       : ((row.inventory_items as { name?: string } | null)?.name ?? "Bahan"),
     quantity: Number(row.quantity),
     isCutChoice: row.is_cut_choice,
+    cutCode: row.cut_code ?? undefined,
   }));
 }
 
@@ -538,6 +542,16 @@ export async function saveProductComponents(
   writeLocal(COMPONENT_KEY, { ...local, [productId]: normalized });
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(productId)) return;
+  const { error: productError } = await supabase
+    .from("products")
+    .update({
+      allows_chicken_cut_choice: normalized.some(
+        (component) => component.isCutChoice,
+      ),
+    })
+    .eq("id", productId)
+    .eq("outlet_id", outletId);
+  if (productError) throw productError;
   const { error: deleteError } = await supabase
     .from("product_components")
     .delete()
@@ -550,6 +564,7 @@ export async function saveProductComponents(
         inventory_item_id: component.inventoryItemId,
         quantity: component.quantity,
         is_cut_choice: component.isCutChoice,
+        cut_code: component.isCutChoice ? component.cutCode || null : null,
       })),
     );
     if (error) throw error;
@@ -1115,7 +1130,11 @@ export async function completeSale(draft: SaleDraft) {
         ? "Buka shift kasir terlebih dahulu."
         : error.message.includes("INSUFFICIENT_STOCK:")
           ? `Stok ${error.message.split("INSUFFICIENT_STOCK:")[1]} tidak cukup.`
-          : "Transaksi gagal disimpan.",
+          : error.message.includes("CUT_REQUIRED")
+            ? "Pilih potongan ayam terlebih dahulu."
+            : error.message.includes("CUT_NOT_CONFIGURED:")
+              ? `Potongan ${error.message.split("CUT_NOT_CONFIGURED:")[1]} belum dikonfigurasi pada resep menu.`
+              : "Transaksi gagal disimpan.",
     );
   const row = data as {
     id: string;

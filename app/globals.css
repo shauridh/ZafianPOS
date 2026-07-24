@@ -1081,10 +1081,12 @@ button {
   transform: translateY(-1px);
 }
 .food-art {
-  height: 76px;
+  height: 104px;
   display: grid;
   place-items: center;
   font-size: 36px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
 }
 .food-art.sun {
   background: #fff4cf;
@@ -1102,7 +1104,9 @@ button {
   background: #e5f4fb;
 }
 .menu-card > div {
-  padding: 8px 11px 0;
+  min-height: 76px;
+  padding: 10px 11px 8px;
+  background: #fff;
 }
 .menu-card strong,
 .menu-card small,
@@ -1118,14 +1122,28 @@ button {
   margin: 2px 0 6px;
 }
 .menu-card b {
-  font-size: 10px;
+  display: inline-block;
+  width: auto;
+  font-size: 11px;
   color: var(--red);
+  background: #fff1ef;
+  border-radius: 6px;
+  padding: 4px 7px;
 }
 .menu-card > svg {
   position: absolute;
   right: 10px;
   bottom: 9px;
   color: #999;
+}
+.recipe-help {
+  margin: 10px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8f3ed;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
 }
 .menu-admin-head {
   display: flex;

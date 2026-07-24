@@ -1516,7 +1516,7 @@ function MenuManagement() {
   const [recipeProduct, setRecipeProduct] = useState<MenuItem | null>(null);
   const [categoryEditor, setCategoryEditor] = useState(false);
   const [inventoryOptions, setInventoryOptions] = useState<
-    Array<{ id: string; name: string; usageUnit: string }>
+    Array<{ id: string; name: string; usageUnit: string; kind: string }>
   >([]);
   const [componentLines, setComponentLines] = useState<
     Array<{
@@ -1524,6 +1524,7 @@ function MenuManagement() {
       inventoryName: string;
       quantity: number;
       isCutChoice: boolean;
+      cutCode?: "Dada" | "Sayap" | "Paha atas" | "Paha bawah";
     }>
   >([]);
   const [draftComponents, setDraftComponents] = useState<
@@ -1573,6 +1574,7 @@ function MenuManagement() {
               id: item.id,
               name: item.name,
               usageUnit: item.usageUnit,
+              kind: item.kind,
             })),
           );
           setComponentLines(components);
@@ -1589,6 +1591,7 @@ function MenuManagement() {
               id: item.id,
               name: item.name,
               usageUnit: item.usageUnit,
+              kind: item.kind,
             })),
           ),
         )
@@ -2161,14 +2164,65 @@ function MenuManagement() {
                       setComponentLines((current) =>
                         current.map((item, i) =>
                           i === index
-                            ? { ...item, isCutChoice: event.target.checked }
+                            ? {
+                                ...item,
+                                isCutChoice: event.target.checked,
+                                cutCode: event.target.checked
+                                  ? (item.cutCode ??
+                                    ([
+                                      "Dada",
+                                      "Sayap",
+                                      "Paha atas",
+                                      "Paha bawah",
+                                    ].find((cut) =>
+                                      item.inventoryName
+                                        .toLowerCase()
+                                        .includes(cut.toLowerCase()),
+                                    ) as
+                                      | "Dada"
+                                      | "Sayap"
+                                      | "Paha atas"
+                                      | "Paha bawah"
+                                      | undefined) ??
+                                    "Dada")
+                                  : undefined,
+                              }
                             : item,
                         ),
                       )
                     }
                   />{" "}
-                  Pilihan bagian
+                  {line.isCutChoice
+                    ? "Potongan dipilih kasir"
+                    : inventoryOptions.find(
+                          (item) => item.id === line.inventoryItemId,
+                        )?.kind === "production_output"
+                      ? "Tetap dari etalase"
+                      : "Bahan langsung"}
                 </label>
+                {line.isCutChoice && (
+                  <select
+                    aria-label="Potongan ayam"
+                    value={line.cutCode ?? "Dada"}
+                    onChange={(event) =>
+                      setComponentLines((current) =>
+                        current.map((item, i) =>
+                          i === index
+                            ? {
+                                ...item,
+                                cutCode: event.target.value as
+                                  "Dada" | "Sayap" | "Paha atas" | "Paha bawah",
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {["Dada", "Sayap", "Paha atas", "Paha bawah"].map((cut) => (
+                      <option key={cut}>{cut}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={() =>
                     setComponentLines((current) =>
@@ -2205,6 +2259,11 @@ function MenuManagement() {
             >
               <Plus /> Tambah bahan
             </button>
+            <p className="recipe-help">
+              Untuk menu ayam bebas pilih, tambahkan Dada, Sayap, Paha atas, dan
+              Paha bawah lalu centang “Potongan dipilih kasir”. Bahan lain
+              seperti nasi, saus, dan kemasan tetap tidak dicentang.
+            </p>
           </div>
           <button
             className="primary-wide"
