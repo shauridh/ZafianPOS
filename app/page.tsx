@@ -818,19 +818,35 @@ function POS() {
     return () => clearInterval(timer);
   }, []);
   const addItem = (item: MenuItem, cut?: Cut) => {
-    setCart((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        productId: /^[0-9a-f-]{36}$/i.test(String(item.id))
-          ? String(item.id)
-          : undefined,
-        name: item.name,
-        price: item.price,
-        qty: 1,
-        cut,
-      },
-    ]);
+    const productId = /^[0-9a-f-]{36}$/i.test(String(item.id))
+      ? String(item.id)
+      : undefined;
+    setCart((previous) => {
+      const existing = previous.find(
+        (cartItem) =>
+          (productId
+            ? cartItem.productId === productId
+            : cartItem.name === item.name) && cartItem.cut === cut,
+      );
+      if (existing) {
+        return previous.map((cartItem) =>
+          cartItem.id === existing.id
+            ? { ...cartItem, qty: cartItem.qty + 1 }
+            : cartItem,
+        );
+      }
+      return [
+        ...previous,
+        {
+          id: Date.now(),
+          productId,
+          name: item.name,
+          price: item.price,
+          qty: 1,
+          cut,
+        },
+      ];
+    });
     setCutPicker(null);
   };
   const clickMenu = (item: MenuItem) => {
@@ -990,7 +1006,15 @@ function POS() {
                 <div className="qty">
                   <button
                     onClick={() =>
-                      setCart((c) => c.filter((x) => x.id !== item.id))
+                      setCart((current) =>
+                        item.qty <= 1
+                          ? current.filter((entry) => entry.id !== item.id)
+                          : current.map((entry) =>
+                              entry.id === item.id
+                                ? { ...entry, qty: entry.qty - 1 }
+                                : entry,
+                            ),
+                      )
                     }
                   >
                     <Minus />
