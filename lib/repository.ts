@@ -231,3 +231,38 @@ export async function verifyOwnerPin(pin: string) {
   if (error) throw error;
   return data === true;
 }
+
+export type CompletedProductionBatch = {
+  id?: string;
+  batchNumber: string;
+  totalOutput: number;
+  mode: "supabase" | "local";
+};
+
+export async function completeProductionBatch(recipeId: string, multiplier: number, fallbackTotal: number): Promise<CompletedProductionBatch> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !/^[0-9a-f-]{36}$/i.test(recipeId)) {
+    return {
+      batchNumber: `B-${Date.now().toString().slice(-6)}`,
+      totalOutput: fallbackTotal,
+      mode: "local",
+    };
+  }
+  const { data, error } = await supabase.rpc("complete_production_batch", {
+    p_recipe_id: recipeId,
+    p_multiplier: multiplier,
+    p_operator_id: null,
+  });
+  if (error) throw new Error(
+    error.message.includes("INSUFFICIENT_STOCK:")
+      ? `Stok ${error.message.split("INSUFFICIENT_STOCK:")[1]} tidak cukup.`
+      : "Batch gagal disimpan. Periksa login operator dan koneksi."
+  );
+  const result = data as { id: string; batch_number: string; total_output: number };
+  return {
+    id: result.id,
+    batchNumber: result.batch_number,
+    totalOutput: Number(result.total_output),
+    mode: "supabase",
+  };
+}

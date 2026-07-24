@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { createCategory, createInventoryItem, createProduct, listCategories, listInventory, listProducts, loadBusinessProfile, saveBusinessProfile, uploadMenuImage } from "../lib/repository";
+import { completeProductionBatch, createCategory, createInventoryItem, createProduct, listCategories, listInventory, listProducts, loadBusinessProfile, saveBusinessProfile, uploadMenuImage } from "../lib/repository";
 
 type View = "dashboard" | "kasir" | "menu" | "produksi" | "stok" | "drawer" | "laporan" | "riwayat" | "pengaturan";
 type Cut = "Dada" | "Paha atas" | "Paha bawah" | "Sayap";
@@ -361,6 +361,8 @@ function Production() {
   const [menuModal,setMenuModal]=useState<{mode:"add"|"edit";id?:string}|null>(null);
   const [oilActive,setOilActive]=useState(false);
   const [oilModal,setOilModal]=useState(false);
+  const [batchBusy,setBatchBusy]=useState(false);
+  const [batchError,setBatchError]=useState("");
   const [batches,setBatches]=useState([
     {time:"13:42",batch:"#B-025",input:"2 pak",result:"18 pcs",operator:"Dina",status:"Sesuai"},
     {time:"11:18",batch:"#B-024",input:"2 pak",result:"18 pcs",operator:"Raka",status:"Sesuai"},
@@ -369,11 +371,16 @@ function Production() {
   const menu=productionMenus.find(item=>item.id===activeMenu) ?? productionMenus[0]!;
   const activeOutputs=outputs.filter(item=>item.menuId===activeMenu);
   const estimatedTotal=activeOutputs.reduce((sum,item)=>sum+item.qty*packs,0);
-  const startBatch=()=>{
-    const batchNumber=`#B-${String(26+batches.length-3).padStart(3,"0")}`;
-    setOutputs(current=>current.map(item=>item.menuId===activeMenu?{...item,stock:item.stock+(item.qty*packs)}:item));
-    setBatches(current=>[{time:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}),batch:batchNumber,input:`${packs} ${menu.inputUnit}`,result:`${estimatedTotal} ${activeOutputs[0]?.unit ?? "unit"}`,operator:"Dina",status:"Sesuai"},...current]);
-    setDone({batch:batchNumber,total:estimatedTotal});
+  const startBatch=async()=>{
+    setBatchBusy(true);setBatchError("");
+    try{
+      const completed=await completeProductionBatch(menu.id,packs,estimatedTotal);
+      const batchNumber=completed.batchNumber.startsWith("#")?completed.batchNumber:`#${completed.batchNumber}`;
+      setOutputs(current=>current.map(item=>item.menuId===activeMenu?{...item,stock:item.stock+(item.qty*packs)}:item));
+      setBatches(current=>[{time:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}),batch:batchNumber,input:`${packs} ${menu.inputUnit}`,result:`${completed.totalOutput} ${activeOutputs[0]?.unit ?? "unit"}`,operator:"Dina",status:"Sesuai"},...current]);
+      setDone({batch:batchNumber,total:completed.totalOutput});
+    }catch(error){setBatchError(error instanceof Error?error.message:"Batch gagal disimpan.")}
+    finally{setBatchBusy(false)}
   };
   return (
     <>
@@ -392,7 +399,8 @@ function Production() {
               {activeMenu==="fried-chicken"&&<div><span>Tepung</span><strong>{(packs/3).toFixed(2).replace(".",",")} pak</strong></div>}
               <div><span>Estimasi hasil</span><strong>{estimatedTotal} unit</strong></div>
             </div>
-            <button className="primary-wide" disabled={!activeOutputs.length} onClick={startBatch}>Selesaikan & tambah hasil <ArrowRight/></button>
+            {batchError&&<small className="form-error batch-error">{batchError}</small>}
+            <button className="primary-wide" disabled={!activeOutputs.length||batchBusy} onClick={startBatch}>{batchBusy?"Menyimpan batch...":"Selesaikan & tambah hasil"} <ArrowRight/></button>
           </div>
           <div className="panel output-card">
             <div className="eyebrow"><span>02</span> HASIL BATCH</div>
