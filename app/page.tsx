@@ -1689,7 +1689,7 @@ function MenuManagement() {
                     setProducts((p) => [
                       ...p,
                       {
-                        id: Date.now(),
+                        id: productId,
                         name: newName,
                         note: "Menu baru",
                         price,
