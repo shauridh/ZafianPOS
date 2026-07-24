@@ -656,11 +656,21 @@ async function ensureInventoryItem(
   if (!supabase) return crypto.randomUUID();
   const existing = await supabase
     .from("inventory_items")
-    .select("id")
+    .select("id,kind")
     .eq("outlet_id", outletId)
     .eq("name", name)
     .maybeSingle();
-  if (existing.data?.id) return existing.data.id as string;
+  if (existing.data?.id) {
+    if (existing.data.kind !== kind) {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ kind })
+        .eq("id", existing.data.id)
+        .eq("outlet_id", outletId);
+      if (error) throw error;
+    }
+    return existing.data.id as string;
+  }
   const { data, error } = await supabase
     .from("inventory_items")
     .insert({
