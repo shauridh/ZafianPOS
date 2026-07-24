@@ -3370,3 +3370,45 @@ td {
   font-size: 8px;
   color: var(--muted);
 }
+.component-editor {
+  display: grid;
+  gap: 8px;
+}
+.component-line {
+  display: grid;
+  grid-template-columns: 1fr 90px 110px 30px;
+  gap: 7px;
+  align-items: center;
+}
+.component-line select,
+.component-line input[type="number"] {
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+.component-line label {
+  font-size: 8px;
+}
+.component-line button {
+  border: 0;
+  background: #fff0f0;
+  color: var(--red);
+  border-radius: 7px;
+  height: 30px;
+}
+.category-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+}
+.category-actions button {
+  flex: 1 !important;
+  background: #f7f1eb !important;
+  border: 0 !important;
+  font-size: 8px !important;
+}
+.category-actions button:last-child {
+  color: var(--red) !important;
+}

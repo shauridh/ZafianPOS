@@ -33,8 +33,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import type { ProductComponentDraft } from "../lib/repository";
 import {
   closeCashShift,
+  cancelSale,
   completeProductionBatch,
   completeSale,
   createCategory,
@@ -44,20 +46,38 @@ import {
   deleteInventoryItem,
   deleteOperator,
   deleteProduct,
+  deleteCategory,
+  deleteProductionMenu,
+  deleteProductionOutput,
+  getActiveOilCycle,
   getActiveShift,
   getOperatorSession,
   listCategories,
+  listDisplayStock,
   listInventory,
   listOperators,
+  listProductComponents,
   listProducts,
+  listProductionMenus,
+  listRecentSales,
   loadBusinessProfile,
+  loadActivityLogs,
+  loadOperationalSettings,
+  loadReportDataset,
   openCashShift,
   recordCashMovement,
+  recordOilEvent,
+  renameCategory,
   saveBusinessProfile,
+  saveOperationalSettings,
+  saveProductComponents,
+  saveProductionMenu,
+  saveProductionOutput,
   sendOperatorPasswordLink,
   setOwnerPin,
   signInOperator,
   signOutOperator,
+  startOilCycle,
   updateOperator,
   updateProduct,
   updateInventoryItem,
@@ -297,7 +317,14 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
         <p>{subtitle}</p>
       </div>
       <div className="top-actions">
-        <button className="icon-button">
+        <button
+          className="icon-button"
+          onClick={() =>
+            window.alert(
+              "Notifikasi operasional akan muncul otomatis untuk stok minimum, umur batch etalase, dan siklus minyak.",
+            )
+          }
+        >
           <Bell size={19} />
           <span />
         </button>
@@ -316,6 +343,7 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
 function Dashboard({ setView }: { setView: (view: View) => void }) {
   const [period, setPeriod] = useState("Hari ini");
   const [customPeriod, setCustomPeriod] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState("Hari ini");
   return (
     <>
       <Topbar
@@ -471,9 +499,16 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
                 <h2>Penjualan per jam</h2>
                 <p>Jumlah transaksi hari ini</p>
               </div>
-              <button className="select-button">
-                Hari ini <ChevronDown size={15} />
-              </button>
+              <select
+                className="select-button"
+                value={chartPeriod}
+                onChange={(event) => setChartPeriod(event.target.value)}
+                aria-label="Periode grafik penjualan"
+              >
+                <option>Hari ini</option>
+                <option>Kemarin</option>
+                <option>7 hari terakhir</option>
+              </select>
             </div>
             <div className="chart">
               {[25, 38, 28, 55, 47, 75, 63, 89, 58, 70].map((v, i) => (
@@ -686,6 +721,15 @@ function POS() {
   const [saleBusy, setSaleBusy] = useState(false);
   const [saleError, setSaleError] = useState("");
   const [receiptNumber, setReceiptNumber] = useState("A-087");
+  const [displayStock, setDisplayStock] = useState<
+    Array<{
+      id: string;
+      itemName: string;
+      quantity: number;
+      ageMinutes: number;
+      limitMinutes: number;
+    }>
+  >([]);
   const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
     [cart],
@@ -717,6 +761,15 @@ function POS() {
       })
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    const load = () =>
+      listDisplayStock()
+        .then(setDisplayStock)
+        .catch(() => undefined);
+    load();
+    const timer = setInterval(load, 60000);
+    return () => clearInterval(timer);
+  }, []);
   const addItem = (item: MenuItem, cut?: Cut) => {
     setCart((prev) => [
       ...prev,
@@ -742,14 +795,30 @@ function POS() {
       <div className="pos-topbar">
         <div>
           <h1>Kasir</h1>
-          <p>{channel} · Pesanan #A-087</p>
+          <p>
+            {channel} ? Pesanan #{receiptNumber}
+          </p>
         </div>
         <div className="header-display-stock">
           <span>STOK ETALASE</span>
-          {Object.entries(cutStock).map(([name, count]) => (
-            <div key={name}>
-              <small>{name}</small>
-              <strong>{count}</strong>
+          {(displayStock.length
+            ? displayStock.slice(0, 4)
+            : Object.entries(cutStock).map(([itemName, quantity], index) => ({
+                id: String(index),
+                itemName,
+                quantity,
+                ageMinutes: 0,
+                limitMinutes: 120,
+              }))
+          ).map((item) => (
+            <div
+              key={item.id}
+              className={item.ageMinutes >= item.limitMinutes ? "aged" : ""}
+            >
+              <small>
+                {item.itemName} ? {item.ageMinutes}m
+              </small>
+              <strong>{item.quantity}</strong>
             </div>
           ))}
         </div>
@@ -1102,6 +1171,12 @@ function POS() {
                 setReceiptNumber(result.receiptNumber);
                 setPayment(false);
                 setPaid(true);
+                const printSettings = await loadOperationalSettings().catch(
+                  () => null,
+                );
+                if (printSettings?.autoPrintReceipt) {
+                  window.setTimeout(() => window.print(), 250);
+                }
               } catch (error) {
                 setSaleError(
                   error instanceof Error ? error.message : "Transaksi gagal.",
@@ -1216,6 +1291,9 @@ function POS() {
                 dicetak
               </small>
             </div>
+            <button className="secondary-action" onClick={() => window.print()}>
+              Cetak ulang struk
+            </button>
             <button
               onClick={() => {
                 setPaid(false);
@@ -1250,11 +1328,61 @@ function MenuManagement() {
   const [menuCategory, setMenuCategory] = useState(categories[0]);
   const [imageError, setImageError] = useState("");
   const [editingProduct, setEditingProduct] = useState<MenuItem | null>(null);
+  const [recipeProduct, setRecipeProduct] = useState<MenuItem | null>(null);
+  const [categoryEditor, setCategoryEditor] = useState(false);
+  const [inventoryOptions, setInventoryOptions] = useState<
+    Array<{ id: string; name: string; usageUnit: string }>
+  >([]);
+  const [componentLines, setComponentLines] = useState<
+    Array<{
+      inventoryItemId: string;
+      inventoryName: string;
+      quantity: number;
+      isCutChoice: boolean;
+    }>
+  >([]);
+  const [draftComponents, setDraftComponents] = useState<
+    ProductComponentDraft[]
+  >([]);
   useEffect(() => {
     listCategories(categories)
       .then(setCategories)
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    if (recipeProduct) {
+      Promise.all([
+        listInventory(),
+        listProductComponents(String(recipeProduct.id)),
+      ])
+        .then(([items, components]) => {
+          setInventoryOptions(
+            items.map((item) => ({
+              id: item.id,
+              name: item.name,
+              usageUnit: item.usageUnit,
+            })),
+          );
+          setComponentLines(components);
+        })
+        .catch(() => undefined);
+    }
+  }, [recipeProduct]);
+  useEffect(() => {
+    if (modal === "menu" && !inventoryOptions.length) {
+      listInventory()
+        .then((items) =>
+          setInventoryOptions(
+            items.map((item) => ({
+              id: item.id,
+              name: item.name,
+              usageUnit: item.usageUnit,
+            })),
+          ),
+        )
+        .catch(() => undefined);
+    }
+  }, [modal, inventoryOptions.length]);
   return (
     <>
       <Topbar
@@ -1307,6 +1435,24 @@ function MenuManagement() {
                 {item !== "Semua" && <b>⋮</b>}
               </button>
             ))}
+            {activeCategory !== "Semua" && (
+              <div className="category-actions">
+                <button onClick={() => setCategoryEditor(true)}>
+                  Edit kategori
+                </button>
+                <button
+                  onClick={async () => {
+                    await deleteCategory(activeCategory);
+                    setCategories((current) =>
+                      current.filter((item) => item !== activeCategory),
+                    );
+                    setActiveCategory("Semua");
+                  }}
+                >
+                  Hapus
+                </button>
+              </div>
+            )}
           </aside>
           <section className="panel product-table">
             <div className="panel-head">
@@ -1348,9 +1494,12 @@ function MenuManagement() {
                       <strong>{money(item.price)}</strong>
                     </td>
                     <td>
-                      <span className="recipe-count">
-                        {Number(item.id) <= 4 ? "3–4 bahan" : "1 bahan"}
-                      </span>
+                      <button
+                        className="recipe-count"
+                        onClick={() => setRecipeProduct(item)}
+                      >
+                        Atur resep
+                      </button>
                     </td>
                     <td>
                       <span className="status success">Aktif</span>
@@ -1475,9 +1624,47 @@ function MenuManagement() {
                 <label>
                   Resep penjualan
                   <div className="ingredient-placeholder">
-                    <span>Ayam matang — 1 pcs</span>
-                    <span>Kemasan — 1 pcs</span>
-                    <button>+ Tambah bahan</button>
+                    {draftComponents.map((line, index) => (
+                      <span key={`${line.inventoryItemId}-${index}`}>
+                        {line.inventoryName} — {line.quantity}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftComponents((current) =>
+                              current.filter(
+                                (_, itemIndex) => itemIndex !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Hapus
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={!inventoryOptions.length}
+                      onClick={() => {
+                        const item = inventoryOptions.find(
+                          (option) =>
+                            !draftComponents.some(
+                              (line) => line.inventoryItemId === option.id,
+                            ),
+                        );
+                        if (!item) return;
+                        setDraftComponents((current) => [
+                          ...current,
+                          {
+                            inventoryItemId: item.id,
+                            inventoryName: item.name,
+                            quantity: 1,
+                            isCutChoice: false,
+                          },
+                        ]);
+                      }}
+                    >
+                      + Tambah bahan
+                    </button>
                   </div>
                 </label>
               </>
@@ -1490,12 +1677,15 @@ function MenuManagement() {
                     setCategories((c) => [...c, newName]);
                   } else {
                     const price = Number(menuPrice || 0);
-                    await createProduct({
+                    const productId = await createProduct({
                       name: newName,
                       salePrice: price,
                       categoryName: menuCategory,
                       imagePath: menuImage,
                     });
+                    if (draftComponents.length) {
+                      await saveProductComponents(productId, draftComponents);
+                    }
                     setProducts((p) => [
                       ...p,
                       {
@@ -1514,6 +1704,7 @@ function MenuManagement() {
                 setMenuImage("");
                 setMenuPrice("");
                 setImageError("");
+                setDraftComponents([]);
                 setModal(null);
               }}
             >
@@ -1596,6 +1787,174 @@ function MenuManagement() {
           </form>
         </Modal>
       )}
+      {recipeProduct && (
+        <Modal close={() => setRecipeProduct(null)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <Boxes />
+              </span>
+              <div>
+                <h2>Resep {recipeProduct.name}</h2>
+                <p>Bahan akan berkurang otomatis saat menu terjual.</p>
+              </div>
+            </div>
+            <button onClick={() => setRecipeProduct(null)}>
+              <X />
+            </button>
+          </div>
+          <div className="component-editor">
+            {componentLines.map((line, index) => (
+              <div
+                className="component-line"
+                key={`${line.inventoryItemId}-${index}`}
+              >
+                <select
+                  value={line.inventoryItemId}
+                  onChange={(event) => {
+                    const selected = inventoryOptions.find(
+                      (item) => item.id === event.target.value,
+                    );
+                    setComponentLines((current) =>
+                      current.map((item, i) =>
+                        i === index
+                          ? {
+                              ...item,
+                              inventoryItemId: event.target.value,
+                              inventoryName: selected?.name ?? "Bahan",
+                            }
+                          : item,
+                      ),
+                    );
+                  }}
+                >
+                  {inventoryOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={line.quantity}
+                  onChange={(event) =>
+                    setComponentLines((current) =>
+                      current.map((item, i) =>
+                        i === index
+                          ? { ...item, quantity: Number(event.target.value) }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={line.isCutChoice}
+                    onChange={(event) =>
+                      setComponentLines((current) =>
+                        current.map((item, i) =>
+                          i === index
+                            ? { ...item, isCutChoice: event.target.checked }
+                            : item,
+                        ),
+                      )
+                    }
+                  />{" "}
+                  Pilihan bagian
+                </label>
+                <button
+                  onClick={() =>
+                    setComponentLines((current) =>
+                      current.filter((_, i) => i !== index),
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              className="secondary-action"
+              disabled={!inventoryOptions.length}
+              onClick={() => {
+                const item =
+                  inventoryOptions.find(
+                    (option) =>
+                      !componentLines.some(
+                        (line) => line.inventoryItemId === option.id,
+                      ),
+                  ) ?? inventoryOptions[0];
+                if (item)
+                  setComponentLines((current) => [
+                    ...current,
+                    {
+                      inventoryItemId: item.id,
+                      inventoryName: item.name,
+                      quantity: 1,
+                      isCutChoice: false,
+                    },
+                  ]);
+              }}
+            >
+              <Plus /> Tambah bahan
+            </button>
+          </div>
+          <button
+            className="primary-wide"
+            onClick={async () => {
+              await saveProductComponents(
+                String(recipeProduct.id),
+                componentLines,
+              );
+              setRecipeProduct(null);
+            }}
+          >
+            Simpan resep penjualan
+          </button>
+        </Modal>
+      )}
+      {categoryEditor && (
+        <Modal close={() => setCategoryEditor(false)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <Grid2X2 />
+              </span>
+              <div>
+                <h2>Edit kategori</h2>
+                <p>Perubahan langsung diterapkan pada katalog.</p>
+              </div>
+            </div>
+            <button onClick={() => setCategoryEditor(false)}>
+              <X />
+            </button>
+          </div>
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const next = String(
+                new FormData(event.currentTarget).get("name"),
+              );
+              await renameCategory(activeCategory, next);
+              setCategories((current) =>
+                current.map((item) => (item === activeCategory ? next : item)),
+              );
+              setActiveCategory(next);
+              setCategoryEditor(false);
+            }}
+          >
+            <label>
+              Nama kategori
+              <input name="name" required defaultValue={activeCategory} />
+            </label>
+            <button type="submit">Simpan kategori</button>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }
@@ -1667,9 +2026,37 @@ function Production() {
   } | null>(null);
   const [oilActive, setOilActive] = useState(false);
   const [oilModal, setOilModal] = useState(false);
+  const [oilCycle, setOilCycle] = useState<{
+    id: string;
+    startedAt: string;
+    initialPouches: number;
+    initialLiters: number;
+    packsProcessed: number;
+  } | null>(null);
+  const [oilEventModal, setOilEventModal] = useState<
+    "inspection" | "top_up" | null
+  >(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchError, setBatchError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  useEffect(() => {
+    listProductionMenus()
+      .then((data) => {
+        if (!data.menus.length) return;
+        setProductionMenus(data.menus);
+        setOutputs(data.outputs);
+        setActiveMenu(data.menus[0].id);
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    getActiveOilCycle()
+      .then((cycle) => {
+        setOilCycle(cycle);
+        setOilActive(Boolean(cycle));
+      })
+      .catch(() => undefined);
+  }, []);
   const [batches, setBatches] = useState([
     {
       time: "13:42",
@@ -1786,7 +2173,8 @@ function Production() {
               </button>
               {productionMenus.length > 1 && (
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    await deleteProductionMenu(menu.id);
                     const remaining = productionMenus.filter(
                       (item) => item.id !== menu.id,
                     );
@@ -1885,11 +2273,12 @@ function Production() {
                   </button>
                   <button
                     title="Hapus"
-                    onClick={() =>
+                    onClick={async () => {
+                      await deleteProductionOutput(item.id);
                       setOutputs((current) =>
                         current.filter((output) => output.id !== item.id),
-                      )
-                    }
+                      );
+                    }}
                   >
                     ×
                   </button>
@@ -1918,7 +2307,7 @@ function Production() {
               <div className="oil-drop">💧</div>
               <div>
                 <strong>
-                  0 <small>/ 200 pak</small>
+                  {oilCycle?.packsProcessed ?? 0} <small>/ 200 pak</small>
                 </strong>
                 <span>
                   {oilActive
@@ -1928,12 +2317,16 @@ function Production() {
               </div>
             </div>
             <div className="progress">
-              <i style={{ width: "0%" }} />
+              <i
+                style={{
+                  width: `${Math.min(100, ((oilCycle?.packsProcessed ?? 0) / 200) * 100)}%`,
+                }}
+              />
             </div>
             <div className="oil-metrics">
               <div>
                 <span>Top-up berikutnya</span>
-                <strong>0 / 10 pak</strong>
+                <strong>{(oilCycle?.packsProcessed ?? 0) % 10} / 10 pak</strong>
               </div>
               <div>
                 <span>Batas usia</span>
@@ -1943,8 +2336,12 @@ function Production() {
             <div className="oil-actions">
               {oilActive ? (
                 <>
-                  <button>Periksa minyak</button>
-                  <button>Catat top-up</button>
+                  <button onClick={() => setOilEventModal("inspection")}>
+                    Periksa minyak
+                  </button>
+                  <button onClick={() => setOilEventModal("top_up")}>
+                    Catat top-up
+                  </button>
                 </>
               ) : (
                 <button className="oil-start" onClick={() => setOilModal(true)}>
@@ -2026,21 +2423,18 @@ function Production() {
           mode={outputModal.mode}
           initial={outputs.find((item) => item.id === outputModal.id)}
           close={() => setOutputModal(null)}
-          save={(value) => {
+          save={async (value) => {
+            const id = await saveProductionOutput(
+              activeMenu,
+              value,
+              outputModal.mode === "edit" ? outputModal.id : undefined,
+            );
             setOutputs((current) =>
               outputModal.mode === "edit"
                 ? current.map((item) =>
                     item.id === outputModal.id ? { ...item, ...value } : item,
                   )
-                : [
-                    ...current,
-                    {
-                      ...value,
-                      id: crypto.randomUUID(),
-                      menuId: activeMenu,
-                      stock: 0,
-                    },
-                  ],
+                : [...current, { ...value, id, menuId: activeMenu, stock: 0 }],
             );
             setOutputModal(null);
           }}
@@ -2051,15 +2445,16 @@ function Production() {
           mode={menuModal.mode}
           initial={productionMenus.find((item) => item.id === menuModal.id)}
           close={() => setMenuModal(null)}
-          save={(value) => {
+          save={async (value) => {
             if (menuModal.mode === "edit") {
+              await saveProductionMenu(value, menuModal.id);
               setProductionMenus((current) =>
                 current.map((item) =>
                   item.id === menuModal.id ? { ...item, ...value } : item,
                 ),
               );
             } else {
-              const id = crypto.randomUUID();
+              const id = await saveProductionMenu(value);
               setProductionMenus((current) => [...current, { ...value, id }]);
               setActiveMenu(id);
             }
@@ -2133,7 +2528,21 @@ function Production() {
               <X />
             </button>
           </div>
-          <div className="crud-form">
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const cycle = await startOilCycle(
+                Number(form.get("pouches")),
+                Number(form.get("liters")),
+                String(form.get("reason")),
+              );
+              setOilCycle(cycle);
+              setOilActive(true);
+              setOilModal(false);
+            }}
+          >
             <label>
               Tanggal pengisian
               <input type="date" defaultValue="2026-07-23" />
@@ -2141,29 +2550,96 @@ function Production() {
             <div>
               <label>
                 Jumlah pouch
-                <input type="number" defaultValue="7" />
+                <input
+                  name="pouches"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  defaultValue="7"
+                />
               </label>
               <label>
                 Total liter
-                <input type="number" defaultValue="14" />
+                <input
+                  name="liters"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  defaultValue="14"
+                />
               </label>
             </div>
             <label>
               Jenis aktivitas
-              <select>
-                <option>Pengisian awal</option>
-                <option>Pergantian minyak</option>
+              <select name="reason">
+                <option value="initial">Pengisian awal</option>
+                <option value="replacement">Pergantian minyak</option>
               </select>
             </label>
-            <button
-              onClick={() => {
-                setOilActive(true);
-                setOilModal(false);
-              }}
-            >
-              Mulai siklus dari nol
+            <button type="submit">Mulai siklus dari nol</button>
+          </form>
+        </Modal>
+      )}
+      {oilEventModal && (
+        <Modal close={() => setOilEventModal(null)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <Flame />
+              </span>
+              <div>
+                <h2>
+                  {oilEventModal === "inspection"
+                    ? "Periksa minyak"
+                    : "Catat top-up"}
+                </h2>
+                <p>Simpan kondisi dan aktivitas minyak fryer.</p>
+              </div>
+            </div>
+            <button onClick={() => setOilEventModal(null)}>
+              <X />
             </button>
           </div>
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              await recordOilEvent(oilEventModal, {
+                pouches: Number(form.get("pouches") || 0) || undefined,
+                liters: Number(form.get("liters") || 0) || undefined,
+                condition: String(form.get("condition") || ""),
+                note: String(form.get("note") || ""),
+              });
+              setOilEventModal(null);
+            }}
+          >
+            {oilEventModal === "top_up" && (
+              <div>
+                <label>
+                  Jumlah pouch
+                  <input name="pouches" type="number" min="0" step="0.1" />
+                </label>
+                <label>
+                  Total liter
+                  <input name="liters" type="number" min="0" step="0.1" />
+                </label>
+              </div>
+            )}
+            <label>
+              Kondisi
+              <select name="condition">
+                <option>Baik</option>
+                <option>Mulai gelap</option>
+                <option>Hitam / harus diganti</option>
+              </select>
+            </label>
+            <label>
+              Catatan
+              <textarea name="note" />
+            </label>
+            <button type="submit">Simpan catatan minyak</button>
+          </form>
         </Modal>
       )}
     </>
@@ -3182,6 +3658,11 @@ function Reports() {
   const [tab, setTab] = useState("Penjualan");
   const [period, setPeriod] = useState("Hari ini");
   const [customPeriod, setCustomPeriod] = useState(false);
+  const [liveReport, setLiveReport] = useState<{
+    kpis: string[][];
+    columns: string[];
+    rows: string[][];
+  } | null>(null);
   const reportData: Record<
     string,
     { kpis: string[][]; columns: string[]; rows: string[][] }
@@ -3262,7 +3743,12 @@ function Reports() {
       ],
     },
   };
-  const data = reportData[tab];
+  useEffect(() => {
+    loadReportDataset(tab, period)
+      .then(setLiveReport)
+      .catch(() => setLiveReport(null));
+  }, [tab, period]);
+  const data = liveReport ?? reportData[tab];
   const downloadCsv = () => {
     const csv = [data.columns, ...data.rows]
       .map((row) =>
@@ -3472,7 +3958,7 @@ function Reports() {
 }
 
 function ActivityLog() {
-  const events = [
+  const fallbackEvents = [
     [
       "14:24",
       "Dina",
@@ -3498,9 +3984,50 @@ function ActivityLog() {
     ["10:05", "Dina", "Konversi stok", "2 sayap → 2 topping rice bowl", "Stok"],
     ["09:15", "Dina", "Mencatat cash-in", "Uang kembalian · Rp100.000", "Kas"],
   ];
+  const [events, setEvents] = useState<string[][]>(fallbackEvents);
   const [filter, setFilter] = useState("Semua");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<string[] | null>(null);
+  const [historyMode, setHistoryMode] = useState<"activity" | "sales">(
+    "activity",
+  );
+  const [recentSales, setRecentSales] = useState<
+    Array<{
+      id: string;
+      receipt_number: string;
+      created_at: string;
+      customer_name: string | null;
+      payment_method: string;
+      total: number;
+      status: string;
+      sale_items: Array<{ product_name: string; quantity: number }>;
+    }>
+  >([]);
+  const [cancelTarget, setCancelTarget] = useState<{
+    id: string;
+    receipt: string;
+  } | null>(null);
+  useEffect(() => {
+    loadActivityLogs()
+      .then((logs) => {
+        if (logs.length)
+          setEvents(
+            logs.map((log) => [
+              log.time,
+              log.operator,
+              log.action,
+              log.detail,
+              log.category,
+            ]),
+          );
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    listRecentSales()
+      .then((data) => setRecentSales(data as typeof recentSales))
+      .catch(() => undefined);
+  }, []);
   const visible = events.filter(
     (event) =>
       (filter === "Semua" || event[4] === filter) &&
@@ -3513,59 +4040,131 @@ function ActivityLog() {
         subtitle="Jejak lengkap perubahan dan aktivitas operator."
       />
       <main className="content">
-        <section className="panel">
-          <div className="log-toolbar">
-            <div className="categories">
-              {[
-                "Semua",
-                "Kasir",
-                "Produksi",
-                "Stok",
-                "Kas",
-                "Approval owner",
-              ].map((item) => (
-                <button
-                  key={item}
-                  className={filter === item ? "active" : ""}
-                  onClick={() => setFilter(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-            <label>
-              <Search />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Cari aktivitas..."
-              />
-            </label>
-          </div>
-          <div className="timeline">
-            {visible.map((event, i) => (
-              <div className="timeline-row" key={event[0] + event[2]}>
-                <span className={`timeline-dot t${i % 4}`} />
-                <time>{event[0]}</time>
-                <div className="avatar small">
-                  {event[1].slice(0, 2).toUpperCase()}
-                </div>
-                <p>
-                  <strong>{event[1]}</strong>
-                  <span>{event[2]}</span>
-                  <small>{event[3]}</small>
-                </p>
-                <button onClick={() => setDetail(event)}>Detail</button>
-              </div>
-            ))}
-            {!visible.length && (
-              <div className="empty-production">
-                <History />
-                <strong>Aktivitas tidak ditemukan</strong>
-              </div>
-            )}
-          </div>
+        <section className="report-tabs">
+          <button
+            className={historyMode === "activity" ? "active" : ""}
+            onClick={() => setHistoryMode("activity")}
+          >
+            Aktivitas
+          </button>
+          <button
+            className={historyMode === "sales" ? "active" : ""}
+            onClick={() => setHistoryMode("sales")}
+          >
+            Transaksi
+          </button>
         </section>
+        {historyMode === "activity" && (
+          <section className="panel">
+            <div className="log-toolbar">
+              <div className="categories">
+                {[
+                  "Semua",
+                  "Kasir",
+                  "Produksi",
+                  "Stok",
+                  "Kas",
+                  "Approval owner",
+                ].map((item) => (
+                  <button
+                    key={item}
+                    className={filter === item ? "active" : ""}
+                    onClick={() => setFilter(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+              <label>
+                <Search />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Cari aktivitas..."
+                />
+              </label>
+            </div>
+            <div className="timeline">
+              {visible.map((event, i) => (
+                <div className="timeline-row" key={event[0] + event[2]}>
+                  <span className={`timeline-dot t${i % 4}`} />
+                  <time>{event[0]}</time>
+                  <div className="avatar small">
+                    {event[1].slice(0, 2).toUpperCase()}
+                  </div>
+                  <p>
+                    <strong>{event[1]}</strong>
+                    <span>{event[2]}</span>
+                    <small>{event[3]}</small>
+                  </p>
+                  <button onClick={() => setDetail(event)}>Detail</button>
+                </div>
+              ))}
+              {!visible.length && (
+                <div className="empty-production">
+                  <History />
+                  <strong>Aktivitas tidak ditemukan</strong>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+        {historyMode === "sales" && (
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>Riwayat transaksi</h2>
+                <p>Transaksi dapat dibatalkan dengan PIN owner.</p>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Struk</th>
+                  <th>Pelanggan</th>
+                  <th>Pembayaran</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentSales.map((sale) => (
+                  <tr key={sale.id}>
+                    <td>{new Date(sale.created_at).toLocaleString("id-ID")}</td>
+                    <td>{sale.receipt_number}</td>
+                    <td>{sale.customer_name || "-"}</td>
+                    <td>{sale.payment_method}</td>
+                    <td>{money(Number(sale.total))}</td>
+                    <td>
+                      <span
+                        className={`status ${sale.status === "completed" ? "success" : "danger"}`}
+                      >
+                        {sale.status}
+                      </span>
+                    </td>
+                    <td>
+                      {sale.status === "completed" && (
+                        <button
+                          className="secondary-action"
+                          onClick={() =>
+                            setCancelTarget({
+                              id: sale.id,
+                              receipt: sale.receipt_number,
+                            })
+                          }
+                        >
+                          Batalkan
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
       </main>
       {detail && (
         <Modal close={() => setDetail(null)}>
@@ -3601,6 +4200,62 @@ function ActivityLog() {
           </button>
         </Modal>
       )}
+      {cancelTarget && (
+        <Modal close={() => setCancelTarget(null)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <ShieldCheck />
+              </span>
+              <div>
+                <h2>Batalkan transaksi</h2>
+                <p>
+                  {cancelTarget.receipt} · stok dan drawer akan dikembalikan.
+                </p>
+              </div>
+            </div>
+            <button onClick={() => setCancelTarget(null)}>
+              <X />
+            </button>
+          </div>
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              await cancelSale(
+                cancelTarget.id,
+                String(form.get("pin")),
+                String(form.get("reason")),
+              );
+              setRecentSales((current) =>
+                current.map((sale) =>
+                  sale.id === cancelTarget.id
+                    ? { ...sale, status: "cancelled" }
+                    : sale,
+                ),
+              );
+              setCancelTarget(null);
+            }}
+          >
+            <label>
+              Alasan
+              <textarea name="reason" required />
+            </label>
+            <label>
+              PIN owner
+              <input
+                name="pin"
+                type="password"
+                inputMode="numeric"
+                required
+                maxLength={6}
+              />
+            </label>
+            <button type="submit">Konfirmasi pembatalan</button>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }
@@ -3616,6 +4271,16 @@ function SettingsPage({
 }) {
   const [autoPrint, setAutoPrint] = useState(true);
   const [kitchenPrint, setKitchenPrint] = useState(false);
+  const [receiptWidth, setReceiptWidth] = useState<58 | 80>(58);
+  const [batchUsageMethod, setBatchUsageMethod] = useState<"fifo" | "manual">(
+    "fifo",
+  );
+  const [negativeStockDefault, setNegativeStockDefault] = useState(false);
+  const [stockAlertDefault, setStockAlertDefault] = useState(true);
+  const [outletPhone, setOutletPhone] = useState("");
+  const [outletAddress, setOutletAddress] = useState("");
+  const [opensAt, setOpensAt] = useState("08:00");
+  const [closesAt, setClosesAt] = useState("21:00");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -3645,6 +4310,22 @@ function SettingsPage({
   useEffect(() => {
     getOperatorSession()
       .then((session) => setOperatorEmail(session?.user.email ?? null))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    loadOperationalSettings()
+      .then((settings) => {
+        setAutoPrint(settings.autoPrintReceipt);
+        setKitchenPrint(settings.printKitchenTicket);
+        setReceiptWidth(settings.receiptWidth);
+        setBatchUsageMethod(settings.batchUsageMethod);
+        setNegativeStockDefault(settings.negativeStockDefault);
+        setStockAlertDefault(settings.stockAlertDefault);
+        setOutletPhone(settings.phone);
+        setOutletAddress(settings.address);
+        setOpensAt(settings.opensAt);
+        setClosesAt(settings.closesAt);
+      })
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -3791,7 +4472,12 @@ function SettingsPage({
               </div>
               <div className="setting-field">
                 <label>Ukuran kertas</label>
-                <select defaultValue="58">
+                <select
+                  value={receiptWidth}
+                  onChange={(event) =>
+                    setReceiptWidth(Number(event.target.value) as 58 | 80)
+                  }
+                >
                   <option value="58">Thermal 58 mm</option>
                   <option value="80">Thermal 80 mm</option>
                 </select>
@@ -3833,15 +4519,26 @@ function SettingsPage({
               <div className="business-fields">
                 <label>
                   Nama outlet
-                  <input defaultValue="Outlet Utama" />
+                  <input
+                    value={business.outlet}
+                    onChange={(event) =>
+                      setBusiness({ ...business, outlet: event.target.value })
+                    }
+                  />
                 </label>
                 <label>
                   Telepon
-                  <input defaultValue="0812 3456 7890" />
+                  <input
+                    value={outletPhone}
+                    onChange={(event) => setOutletPhone(event.target.value)}
+                  />
                 </label>
                 <label>
                   Alamat
-                  <input defaultValue="Jl. Contoh Raya No. 18" />
+                  <input
+                    value={outletAddress}
+                    onChange={(event) => setOutletAddress(event.target.value)}
+                  />
                 </label>
                 <label>
                   Zona waktu
@@ -3851,11 +4548,19 @@ function SettingsPage({
                 </label>
                 <label>
                   Jam buka
-                  <input type="time" defaultValue="08:00" />
+                  <input
+                    type="time"
+                    value={opensAt}
+                    onChange={(event) => setOpensAt(event.target.value)}
+                  />
                 </label>
                 <label>
                   Jam tutup
-                  <input type="time" defaultValue="21:00" />
+                  <input
+                    type="time"
+                    value={closesAt}
+                    onChange={(event) => setClosesAt(event.target.value)}
+                  />
                 </label>
               </div>
               <div className="setting-row">
@@ -3863,7 +4568,11 @@ function SettingsPage({
                   <strong>Mode satu outlet</strong>
                   <span>Semua transaksi dan stok berada di outlet ini.</span>
                 </div>
-                <button className="switch on">
+                <button
+                  className="switch on"
+                  disabled
+                  title="Aplikasi dikonfigurasi untuk satu outlet"
+                >
                   <i />
                 </button>
               </div>
@@ -3897,7 +4606,12 @@ function SettingsPage({
               </div>
               <div className="setting-field">
                 <label>Metode penggunaan batch</label>
-                <select>
+                <select
+                  value={batchUsageMethod}
+                  onChange={(event) =>
+                    setBatchUsageMethod(event.target.value as "fifo" | "manual")
+                  }
+                >
                   <option>FIFO · batch tertua dahulu</option>
                   <option>Manual</option>
                 </select>
@@ -3915,7 +4629,10 @@ function SettingsPage({
                   <strong>Cegah stok negatif secara default</strong>
                   <span>Dapat dioverride pada masing-masing bahan.</span>
                 </div>
-                <button className="switch on">
+                <button
+                  className={`switch ${negativeStockDefault ? "on" : ""}`}
+                  onClick={() => setNegativeStockDefault((current) => !current)}
+                >
                   <i />
                 </button>
               </div>
@@ -3924,7 +4641,10 @@ function SettingsPage({
                   <strong>Peringatan stok minimum default</strong>
                   <span>Dapat dinonaktifkan pada bahan tertentu.</span>
                 </div>
-                <button className="switch on">
+                <button
+                  className={`switch ${stockAlertDefault ? "on" : ""}`}
+                  onClick={() => setStockAlertDefault((current) => !current)}
+                >
                   <i />
                 </button>
               </div>
@@ -4191,6 +4911,18 @@ function SettingsPage({
             onClick={async () => {
               setSaveState("saving");
               await onSave();
+              await saveOperationalSettings({
+                autoPrintReceipt: autoPrint,
+                printKitchenTicket: kitchenPrint,
+                receiptWidth,
+                batchUsageMethod,
+                negativeStockDefault,
+                stockAlertDefault,
+                phone: outletPhone,
+                address: outletAddress,
+                opensAt,
+                closesAt,
+              });
               setSaveState("saved");
               setTimeout(() => setSaveState("idle"), 1600);
             }}
