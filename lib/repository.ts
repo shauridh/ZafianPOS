@@ -232,6 +232,49 @@ export async function verifyOwnerPin(pin: string) {
   return data === true;
 }
 
+export async function getOperatorSession() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session;
+}
+
+export async function signInOperator(email: string, password: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error("Supabase belum dikonfigurasi.");
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error("Email atau password tidak sesuai.");
+  return data.session;
+}
+
+export async function sendOperatorPasswordLink(email: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error("Supabase belum dikonfigurasi.");
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: typeof window === "undefined" ? undefined : window.location.origin,
+  });
+  if (error) throw new Error("Tautan password gagal dikirim.");
+}
+
+export async function updateOperatorPassword(password: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error("Supabase belum dikonfigurasi.");
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error("Password minimal 6 karakter.");
+}
+
+export async function signOutOperator() {
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) await supabase.auth.signOut();
+}
+
+export async function setOwnerPin(pin: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error("Supabase belum dikonfigurasi.");
+  const { error } = await supabase.rpc("set_owner_pin", { new_pin: pin });
+  if (error) throw new Error(error.message.includes("PIN_FORMAT") ? "PIN harus 4–6 angka." : "PIN gagal disimpan.");
+}
+
 export type CompletedProductionBatch = {
   id?: string;
   batchNumber: string;
