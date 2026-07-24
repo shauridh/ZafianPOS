@@ -344,17 +344,37 @@ function MenuManagement() {
 
 function Production() {
   const [packs, setPacks] = useState(2);
-  const [done, setDone] = useState(false);
-  const [recipes, setRecipes] = useState([
-    {name:"Sayap", qty:2, unit:"pcs"},
-    {name:"Paha atas", qty:2, unit:"pcs"},
-    {name:"Paha bawah", qty:2, unit:"pcs"},
-    {name:"Dada", qty:3, unit:"pcs"},
+  const [done, setDone] = useState<{batch:string;total:number}|null>(null);
+  const [productionMenus,setProductionMenus]=useState([
+    {id:"fried-chicken",name:"Goreng ayam",inputName:"Ayam mentah",inputUnit:"pak"},
+    {id:"rice",name:"Masak nasi",inputName:"Beras",inputUnit:"kg"},
   ]);
-  const [recipeModal, setRecipeModal] = useState(false);
-  const [recipeName, setRecipeName] = useState("");
+  const [activeMenu,setActiveMenu]=useState("fried-chicken");
+  const [outputs,setOutputs]=useState([
+    {id:"wing",menuId:"fried-chicken",name:"Sayap",qty:2,unit:"pcs",stock:4},
+    {id:"upper",menuId:"fried-chicken",name:"Paha atas",qty:2,unit:"pcs",stock:4},
+    {id:"lower",menuId:"fried-chicken",name:"Paha bawah",qty:2,unit:"pcs",stock:4},
+    {id:"breast",menuId:"fried-chicken",name:"Dada",qty:3,unit:"pcs",stock:6},
+    {id:"rice-portion",menuId:"rice",name:"Nasi siap saji",qty:10,unit:"porsi",stock:21},
+  ]);
+  const [outputModal,setOutputModal]=useState<{mode:"add"|"edit";id?:string}|null>(null);
+  const [menuModal,setMenuModal]=useState<{mode:"add"|"edit";id?:string}|null>(null);
   const [oilActive,setOilActive]=useState(false);
   const [oilModal,setOilModal]=useState(false);
+  const [batches,setBatches]=useState([
+    {time:"13:42",batch:"#B-025",input:"2 pak",result:"18 pcs",operator:"Dina",status:"Sesuai"},
+    {time:"11:18",batch:"#B-024",input:"2 pak",result:"18 pcs",operator:"Raka",status:"Sesuai"},
+    {time:"09:35",batch:"#B-023",input:"2 pak",result:"17 pcs",operator:"Dina",status:"Susut 1"},
+  ]);
+  const menu=productionMenus.find(item=>item.id===activeMenu) ?? productionMenus[0]!;
+  const activeOutputs=outputs.filter(item=>item.menuId===activeMenu);
+  const estimatedTotal=activeOutputs.reduce((sum,item)=>sum+item.qty*packs,0);
+  const startBatch=()=>{
+    const batchNumber=`#B-${String(26+batches.length-3).padStart(3,"0")}`;
+    setOutputs(current=>current.map(item=>item.menuId===activeMenu?{...item,stock:item.stock+(item.qty*packs)}:item));
+    setBatches(current=>[{time:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}),batch:batchNumber,input:`${packs} ${menu.inputUnit}`,result:`${estimatedTotal} ${activeOutputs[0]?.unit ?? "unit"}`,operator:"Dina",status:"Sesuai"},...current]);
+    setDone({batch:batchNumber,total:estimatedTotal});
+  };
   return (
     <>
       <Topbar title="Produksi" subtitle="Kelola batch goreng dan kondisi deep fryer." />
@@ -362,20 +382,23 @@ function Production() {
         <section className="production-grid">
           <div className="panel batch-builder">
             <div className="eyebrow"><span>01</span> BATCH BARU</div>
-            <h2>Goreng ayam</h2><p>Pilih jumlah pak yang akan diproduksi.</p>
-            <div className="pack-stepper"><button onClick={()=>setPacks(Math.max(1,packs-1))}><Minus/></button><div><strong>{packs}</strong><span>pak ayam</span></div><button onClick={()=>setPacks(packs+1)}><Plus/></button></div>
+            <div className="section-title-action"><div><h2>{menu.name}</h2><p>Pilih menu dan jumlah yang akan diproduksi.</p></div><button onClick={()=>setMenuModal({mode:"add"})}><Plus/> Menu</button></div>
+            <div className="production-menu-tabs">{productionMenus.map(item=><button key={item.id} className={activeMenu===item.id?"active":""} onClick={()=>setActiveMenu(item.id)}>{item.name}</button>)}</div>
+            <div className="production-menu-actions"><button onClick={()=>setMenuModal({mode:"edit",id:menu.id})}>Edit menu</button>{productionMenus.length>1&&<button onClick={()=>{const remaining=productionMenus.filter(item=>item.id!==menu.id);setProductionMenus(remaining);setOutputs(items=>items.filter(item=>item.menuId!==menu.id));setActiveMenu(remaining[0].id)}}>Hapus</button>}</div>
+            <div className="pack-stepper"><button onClick={()=>setPacks(Math.max(1,packs-1))}><Minus/></button><div><strong>{packs}</strong><span>{menu.inputUnit} {menu.inputName.toLowerCase()}</span></div><button onClick={()=>setPacks(packs+1)}><Plus/></button></div>
             <div className="recipe-preview">
               <h3>Kebutuhan otomatis</h3>
-              <div><span>Ayam mentah</span><strong>{packs} pak</strong></div>
-              <div><span>Tepung</span><strong>{(packs/3).toFixed(2).replace(".",",")} pak</strong></div>
-              <div><span>Estimasi hasil</span><strong>{packs*9} potong</strong></div>
+              <div><span>{menu.inputName}</span><strong>{packs} {menu.inputUnit}</strong></div>
+              {activeMenu==="fried-chicken"&&<div><span>Tepung</span><strong>{(packs/3).toFixed(2).replace(".",",")} pak</strong></div>}
+              <div><span>Estimasi hasil</span><strong>{estimatedTotal} unit</strong></div>
             </div>
-            <button className="primary-wide" onClick={()=>setDone(true)}>Mulai produksi <ArrowRight/></button>
+            <button className="primary-wide" disabled={!activeOutputs.length} onClick={startBatch}>Selesaikan & tambah hasil <ArrowRight/></button>
           </div>
           <div className="panel output-card">
             <div className="eyebrow"><span>02</span> HASIL BATCH</div>
-            <div className="section-title-action"><div><h2>Hasil produksi</h2><p>Konversi ayam mentah menjadi komponen matang.</p></div><button onClick={()=>setRecipeModal(true)}><Plus/> Tambah</button></div>
-            {recipes.map((item)=><div className="output-row editable" key={item.name}><span className="chicken-symbol">♨</span><div><strong>{item.name}</strong><small>Hasil per 1 pak ayam</small></div><b>{item.qty*packs} {item.unit}</b><button onClick={()=>setRecipes(r=>r.filter(x=>x.name!==item.name))}>×</button></div>)}
+            <div className="section-title-action"><div><h2>Hasil produksi</h2><p>Stok bertambah otomatis saat batch diselesaikan.</p></div><button onClick={()=>setOutputModal({mode:"add"})}><Plus/> Tambah</button></div>
+            {activeOutputs.map(item=><div className="output-row editable" key={item.id}><span className="chicken-symbol">♨</span><div><strong>{item.name}</strong><small>{item.qty} {item.unit} per {menu.inputUnit} · stok {item.stock} {item.unit}</small></div><b>+{item.qty*packs} {item.unit}</b><div className="row-actions"><button title="Edit" onClick={()=>setOutputModal({mode:"edit",id:item.id})}>✎</button><button title="Hapus" onClick={()=>setOutputs(current=>current.filter(output=>output.id!==item.id))}>×</button></div></div>)}
+            {!activeOutputs.length&&<div className="empty-production"><CookingPot/><strong>Belum ada hasil produksi</strong><span>Tambahkan komposisi hasil untuk menu ini.</span></div>}
           </div>
           <div className="panel oil-cycle">
             <div className="panel-head"><div><span className="eyebrow plain">DEEP FRYER 1</span><h2>Siklus minyak</h2></div><span className={`status ${oilActive?"success":"neutral"}`}>{oilActive?"Aktif":"Belum dimulai"}</span></div>
@@ -386,20 +409,26 @@ function Production() {
           </div>
         </section>
         <section className="panel recent-batches">
-          <div className="panel-head"><div><h2>Produksi hari ini</h2><p>5 batch · 10 pak ayam</p></div><button>Riwayat lengkap</button></div>
+          <div className="panel-head"><div><h2>Produksi hari ini</h2><p>{batches.length} batch tercatat</p></div><button>Riwayat lengkap</button></div>
           <table><thead><tr><th>Waktu</th><th>Batch</th><th>Ayam mentah</th><th>Hasil</th><th>Operator</th><th>Status</th></tr></thead><tbody>
-            {[["13:42","#B-025","2 pak","18 pcs","Dina"],["11:18","#B-024","2 pak","18 pcs","Raka"],["09:35","#B-023","2 pak","17 pcs","Dina"]].map((r,i)=><tr key={r[1]}>{r.map(c=><td key={c}>{c}</td>)}<td><span className={i===2?"status warning":"status success"}>{i===2?"Susut 1":"Sesuai"}</span></td></tr>)}
+            {batches.map(row=><tr key={row.batch}><td>{row.time}</td><td>{row.batch}</td><td>{row.input}</td><td>{row.result}</td><td>{row.operator}</td><td><span className={row.status==="Sesuai"?"status success":"status warning"}>{row.status}</span></td></tr>)}
           </tbody></table>
         </section>
       </main>
-      {done && <Modal close={()=>setDone(false)}><div className="success-modal"><span><Check/></span><h2>Batch #{`B-026`} dimulai</h2><p>Bahan baku sudah dialokasikan untuk produksi.</p><div><strong>{packs*9} potong</strong><small>{packs} pak ayam · {(packs/3).toFixed(2).replace(".",",")} pak tepung</small></div><button onClick={()=>setDone(false)}>Kembali ke produksi</button></div></Modal>}
-      {recipeModal && <Modal close={()=>setRecipeModal(false)}>
-        <div className="modal-head"><div><span className="modal-icon"><CookingPot/></span><div><h2>Tambah hasil produksi</h2><p>Buat item baru untuk komposisi etalase.</p></div></div><button onClick={()=>setRecipeModal(false)}><X/></button></div>
-        <div className="crud-form"><label>Nama hasil<input value={recipeName} onChange={e=>setRecipeName(e.target.value)} placeholder="Contoh: kulit crispy"/></label><div><label>Jumlah per pak<input type="number" defaultValue="1"/></label><label>Satuan<select><option>pcs</option><option>porsi</option><option>gram</option></select></label></div><button onClick={()=>{if(recipeName.trim())setRecipes(r=>[...r,{name:recipeName,qty:1,unit:"pcs"}]);setRecipeName("");setRecipeModal(false)}}>Simpan komposisi</button></div>
-      </Modal>}
+      {done && <Modal close={()=>setDone(null)}><div className="success-modal"><span><Check/></span><h2>Batch {done.batch} selesai</h2><p>Bahan baku berkurang dan hasil produksi langsung masuk ke stok etalase.</p><div><strong>+{done.total} unit</strong><small>{packs} {menu.inputUnit} {menu.inputName.toLowerCase()}</small></div><button onClick={()=>setDone(null)}>Kembali ke produksi</button></div></Modal>}
+      {outputModal&&<ProductionOutputModal mode={outputModal.mode} initial={outputs.find(item=>item.id===outputModal.id)} close={()=>setOutputModal(null)} save={value=>{setOutputs(current=>outputModal.mode==="edit"?current.map(item=>item.id===outputModal.id?{...item,...value}:item):[...current,{...value,id:crypto.randomUUID(),menuId:activeMenu,stock:0}]);setOutputModal(null)}}/>}
+      {menuModal&&<ProductionMenuModal mode={menuModal.mode} initial={productionMenus.find(item=>item.id===menuModal.id)} close={()=>setMenuModal(null)} save={value=>{if(menuModal.mode==="edit"){setProductionMenus(current=>current.map(item=>item.id===menuModal.id?{...item,...value}:item))}else{const id=crypto.randomUUID();setProductionMenus(current=>[...current,{...value,id}]);setActiveMenu(id)}setMenuModal(null)}}/>}
       {oilModal && <Modal close={()=>setOilModal(false)}><div className="modal-head"><div><span className="modal-icon">💧</span><div><h2>Mulai siklus minyak</h2><p>Catat pengisian awal atau pergantian minyak.</p></div></div><button onClick={()=>setOilModal(false)}><X/></button></div><div className="crud-form"><label>Tanggal pengisian<input type="date" defaultValue="2026-07-23"/></label><div><label>Jumlah pouch<input type="number" defaultValue="7"/></label><label>Total liter<input type="number" defaultValue="14"/></label></div><label>Jenis aktivitas<select><option>Pengisian awal</option><option>Pergantian minyak</option></select></label><button onClick={()=>{setOilActive(true);setOilModal(false)}}>Mulai siklus dari nol</button></div></Modal>}
     </>
   );
+}
+
+function ProductionOutputModal({mode,initial,close,save}:{mode:"add"|"edit";initial?:{name:string;qty:number;unit:string};close:()=>void;save:(value:{name:string;qty:number;unit:string})=>void}) {
+  return <Modal close={close}><div className="modal-head"><div><span className="modal-icon"><CookingPot/></span><div><h2>{mode==="edit"?"Edit":"Tambah"} hasil produksi</h2><p>Atur hasil yang masuk ke stok setiap batch selesai.</p></div></div><button onClick={close}><X/></button></div><form className="crud-form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);save({name:String(form.get("name")),qty:Number(form.get("qty")||1),unit:String(form.get("unit"))})}}><label>Nama hasil<input name="name" required defaultValue={initial?.name} placeholder="Contoh: Kulit crispy"/></label><div><label>Jumlah per input<input name="qty" required min="0.001" step="0.001" type="number" defaultValue={initial?.qty??1}/></label><label>Satuan<select name="unit" defaultValue={initial?.unit??"pcs"}><option>pcs</option><option>porsi</option><option>gram</option><option>liter</option></select></label></div><button type="submit">Simpan hasil produksi</button></form></Modal>;
+}
+
+function ProductionMenuModal({mode,initial,close,save}:{mode:"add"|"edit";initial?:{name:string;inputName:string;inputUnit:string};close:()=>void;save:(value:{name:string;inputName:string;inputUnit:string})=>void}) {
+  return <Modal close={close}><div className="modal-head"><div><span className="modal-icon"><CookingPot/></span><div><h2>{mode==="edit"?"Edit":"Tambah"} menu produksi</h2><p>Buat jenis proses produksi dan bahan baku utamanya.</p></div></div><button onClick={close}><X/></button></div><form className="crud-form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);save({name:String(form.get("name")),inputName:String(form.get("inputName")),inputUnit:String(form.get("inputUnit"))})}}><label>Nama menu produksi<input name="name" required defaultValue={initial?.name} placeholder="Contoh: Goreng kulit"/></label><div><label>Bahan baku utama<input name="inputName" required defaultValue={initial?.inputName} placeholder="Contoh: Kulit mentah"/></label><label>Satuan input<select name="inputUnit" defaultValue={initial?.inputUnit??"pak"}><option>pak</option><option>kg</option><option>pouch</option><option>liter</option></select></label></div><button type="submit">Simpan menu produksi</button></form></Modal>;
 }
 
 function Inventory() {
