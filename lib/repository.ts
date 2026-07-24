@@ -23,7 +23,6 @@ export type InventoryDraft = {
   storageLocation?: string;
   stockAlertEnabled: boolean;
   allowNegativeStock: boolean;
-  imagePath?: string;
 };
 
 const BUSINESS_KEY = "pos-sabana:business";
@@ -107,7 +106,6 @@ export async function listInventory() {
     storageLocation: item.storage_location ?? undefined,
     stockAlertEnabled: item.stock_alert_enabled,
     allowNegativeStock: item.allow_negative_stock,
-    imagePath: item.image_path ?? undefined,
   }));
 }
 
@@ -133,7 +131,6 @@ export async function createInventoryItem(draft: InventoryDraft) {
     storage_location: draft.storageLocation || null,
     stock_alert_enabled: draft.stockAlertEnabled,
     allow_negative_stock: draft.allowNegativeStock,
-    image_path: draft.imagePath || null,
   }).select("id").single();
   if (error) return created;
   return { ...draft, id: data.id };
@@ -167,7 +164,31 @@ export type ProductDraft = {
   salePrice: number;
   categoryName?: string;
   allowsChickenCutChoice?: boolean;
+  imagePath?: string;
 };
+
+export async function uploadMenuImage(file: File) {
+  if (file.size > 2 * 1024 * 1024) throw new Error("Ukuran gambar maksimal 2 MB.");
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Gunakan gambar JPG, PNG, atau WebP.");
+  }
+  const localUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Gambar tidak dapat dibaca."));
+    reader.readAsDataURL(file);
+  });
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return localUrl;
+  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${outletId}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from("item-images").upload(path, file, {
+    cacheControl: "31536000",
+    contentType: file.type,
+  });
+  if (error) return localUrl;
+  return supabase.storage.from("item-images").getPublicUrl(path).data.publicUrl;
+}
 
 export async function listProducts<T>(fallback: T[]) {
   const supabase = getSupabaseBrowserClient();
@@ -198,6 +219,7 @@ export async function createProduct(draft: ProductDraft) {
     description: draft.description || null,
     sale_price: draft.salePrice,
     allows_chicken_cut_choice: draft.allowsChickenCutChoice ?? false,
+    image_path: draft.imagePath || null,
   });
   if (error) return;
 }
