@@ -67,6 +67,7 @@ import {
   openCashShift,
   recordCashMovement,
   recordOilEvent,
+  reorderCategories,
   renameCategory,
   saveBusinessProfile,
   saveOperationalSettings,
@@ -119,6 +120,8 @@ type MenuItem = {
   icon: string;
   color: string;
   image?: string;
+  category?: string;
+  allowsCutChoice?: boolean;
 };
 
 const defaultBusiness: BusinessProfile = {
@@ -700,10 +703,7 @@ function Modal({
 
 function POS() {
   const [catalog, setCatalog] = useState(menuItems);
-  const [cart, setCart] = useState<CartItem[]>([
-    { id: 101, name: "Paket Ayam Nasi", cut: "Dada", price: 19000, qty: 1 },
-    { id: 102, name: "Ayam Crispy", cut: "Paha atas", price: 13000, qty: 1 },
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [cutPicker, setCutPicker] = useState<MenuItem | null>(null);
   const [paid, setPaid] = useState(false);
   const [payment, setPayment] = useState(false);
@@ -721,6 +721,16 @@ function POS() {
   const [saleBusy, setSaleBusy] = useState(false);
   const [saleError, setSaleError] = useState("");
   const [receiptNumber, setReceiptNumber] = useState("A-087");
+  const [receiptItems, setReceiptItems] = useState<CartItem[]>([]);
+  const [receiptTotal, setReceiptTotal] = useState(0);
+  const [shift, setShift] = useState<{
+    expectedCash: number;
+    openingCash: number;
+    openedAt: string;
+  } | null>(null);
+  const [shiftModal, setShiftModal] = useState<"open" | "close" | null>(null);
+  const [shiftError, setShiftError] = useState("");
+  const [catalogCategories, setCatalogCategories] = useState<string[]>([]);
   const [displayStock, setDisplayStock] = useState<
     Array<{
       id: string;
@@ -730,6 +740,7 @@ function POS() {
       limitMinutes: number;
     }>
   >([]);
+  const [displayLoaded, setDisplayLoaded] = useState(false);
   const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
     [cart],
@@ -737,34 +748,68 @@ function POS() {
   const total = Math.max(0, subtotal - discount);
   const visibleCatalog = catalog.filter(
     (item) =>
-      (category === "Semua" ||
-        item.name.toLowerCase().includes(category.toLowerCase()) ||
-        item.note.toLowerCase().includes(category.toLowerCase())) &&
+      (category === "Semua" || item.category === category) &&
       item.name.toLowerCase().includes(search.toLowerCase()),
   );
   useEffect(() => {
+    getActiveShift()
+      .then((active) => {
+        if (active) {
+          setShift({
+            expectedCash: active.expectedCash,
+            openingCash: active.openingCash,
+            openedAt: active.openedAt,
+          });
+        } else {
+          setShiftModal("open");
+        }
+      })
+      .catch((error) => {
+        setShiftError(
+          error instanceof Error ? error.message : "Shift gagal diperiksa.",
+        );
+        setShiftModal("open");
+      });
+  }, []);
+  useEffect(() => {
+    listCategories([])
+      .then(setCatalogCategories)
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
     listProducts<Record<string, unknown>>([])
       .then((items) => {
-        if (items.length)
-          setCatalog(
-            items.map((item, index) => ({
-              id: String(item.id ?? index),
-              name: String(item.name ?? "Menu"),
-              note: String(item.description ?? "Menu kasir"),
-              price: Number(item.sale_price ?? item.salePrice ?? 0),
-              icon: "🍽️",
-              color: "cream",
-              image:
-                String(item.image_path ?? item.imagePath ?? "") || undefined,
-            })),
-          );
+        setCatalog(
+          items.map((item, index) => ({
+            id: String(item.id ?? index),
+            name: String(item.name ?? "Menu"),
+            note: String(item.description ?? "Menu kasir"),
+            price: Number(item.sale_price ?? item.salePrice ?? 0),
+            icon: "🍽️",
+            color: "cream",
+            image: String(item.image_path ?? item.imagePath ?? "") || undefined,
+            category: Array.isArray(item.menu_categories)
+              ? String(
+                  (item.menu_categories[0] as { name?: string } | undefined)
+                    ?.name ?? "",
+                )
+              : String(
+                  (item.menu_categories as { name?: string } | null)?.name ??
+                    "",
+                ),
+            allowsCutChoice: Boolean(item.allows_chicken_cut_choice),
+          })),
+        );
       })
       .catch(() => undefined);
   }, []);
   useEffect(() => {
     const load = () =>
       listDisplayStock()
-        .then(setDisplayStock)
+        .then((items) => {
+          setDisplayStock(items);
+          setDisplayLoaded(true);
+        })
         .catch(() => undefined);
     load();
     const timer = setInterval(load, 60000);
@@ -787,7 +832,8 @@ function POS() {
     setCutPicker(null);
   };
   const clickMenu = (item: MenuItem) => {
-    if ([1, 2, 4].includes(Number(item.id))) setCutPicker(item);
+    if (item.allowsCutChoice || [1, 2, 4].includes(Number(item.id)))
+      setCutPicker(item);
     else addItem(item);
   };
   return (
@@ -801,19 +847,19 @@ function POS() {
         </div>
         <div className="header-display-stock">
           <span>STOK ETALASE</span>
-          {(displayStock.length
-            ? displayStock.slice(0, 4)
-            : Object.entries(cutStock).map(([itemName, quantity], index) => ({
-                id: String(index),
-                itemName,
-                quantity,
-                ageMinutes: 0,
-                limitMinutes: 120,
-              }))
-          ).map((item) => (
+          {displayStock.slice(0, 4).map((item) => (
             <div
               key={item.id}
-              className={item.ageMinutes >= item.limitMinutes ? "aged" : ""}
+              className={
+                item.quantity <= 0
+                  ? "display-empty"
+                  : item.ageMinutes >= item.limitMinutes || item.quantity <= 2
+                    ? "display-danger"
+                    : item.ageMinutes >= item.limitMinutes * 0.75 ||
+                        item.quantity <= 4
+                      ? "display-warning"
+                      : "display-safe"
+              }
             >
               <small>
                 {item.itemName} ? {item.ageMinutes}m
@@ -821,16 +867,26 @@ function POS() {
               <strong>{item.quantity}</strong>
             </div>
           ))}
+          {displayLoaded && !displayStock.length && (
+            <div className="display-empty">
+              <small>Belum ada hasil produksi</small>
+              <strong>0</strong>
+            </div>
+          )}
         </div>
-        <div className="pos-shift">
-          <span className="live-dot" /> Shift Dina aktif
-        </div>
+        <button
+          className={`pos-shift ${shift ? "active" : "inactive"}`}
+          onClick={() => setShiftModal(shift ? "close" : "open")}
+        >
+          {shift && <span className="live-dot" />}
+          {shift ? "Shift aktif · Tutup kasir" : "Buka kasir"}
+        </button>
       </div>
       <div className="pos-layout">
         <main className="pos-menu">
           <div className="pos-tools">
             <div className="categories">
-              {["Semua", "Paket", "Ayam", "Tambahan", "Minuman"].map((item) => (
+              {["Semua", ...catalogCategories].map((item) => (
                 <button
                   key={item}
                   className={category === item ? "active" : ""}
@@ -997,7 +1053,7 @@ function POS() {
           </div>
           <button
             className="pay-button"
-            disabled={!cart.length}
+            disabled={!cart.length || !shift}
             onClick={() => {
               setCash("");
               setCashPresetActive(false);
@@ -1169,6 +1225,8 @@ function POS() {
                   })),
                 });
                 setReceiptNumber(result.receiptNumber);
+                setReceiptItems(cart);
+                setReceiptTotal(total);
                 setPayment(false);
                 setPaid(true);
                 const printSettings = await loadOperationalSettings().catch(
@@ -1274,18 +1332,145 @@ function POS() {
           </form>
         </Modal>
       )}
+      {shiftModal && (
+        <Modal
+          close={() => {
+            if (shift) setShiftModal(null);
+          }}
+        >
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <WalletCards />
+              </span>
+              <div>
+                <h2>{shiftModal === "open" ? "Buka kasir" : "Tutup kasir"}</h2>
+                <p>
+                  {shiftModal === "open"
+                    ? "Modal awal wajib Rp350.000 sebelum transaksi."
+                    : `Saldo drawer sistem ${money(shift?.expectedCash ?? 0)}.`}
+                </p>
+              </div>
+            </div>
+            {shift && (
+              <button onClick={() => setShiftModal(null)}>
+                <X />
+              </button>
+            )}
+          </div>
+          <form
+            className="crud-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              setShiftError("");
+              try {
+                if (shiftModal === "open") {
+                  const active = await openCashShift(350000);
+                  if (active)
+                    setShift({
+                      expectedCash: active.expectedCash,
+                      openingCash: active.openingCash,
+                      openedAt: active.openedAt,
+                    });
+                } else {
+                  await closeCashShift(
+                    Number(form.get("closingCash")),
+                    String(form.get("pin") || ""),
+                  );
+                  setShift(null);
+                }
+                setShiftModal(null);
+              } catch (error) {
+                setShiftError(
+                  error instanceof Error
+                    ? error.message
+                    : "Proses shift gagal.",
+                );
+              }
+            }}
+          >
+            {shiftModal === "open" ? (
+              <label>
+                Modal awal
+                <input value="350000" readOnly />
+              </label>
+            ) : (
+              <>
+                <label>
+                  Uang fisik di drawer
+                  <input
+                    name="closingCash"
+                    type="number"
+                    min="0"
+                    required
+                    defaultValue={shift?.expectedCash}
+                  />
+                </label>
+                <label>
+                  PIN owner
+                  <small>Diperlukan bila terdapat selisih signifikan.</small>
+                  <input
+                    name="pin"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                  />
+                </label>
+              </>
+            )}
+            {shiftError && <small className="form-error">{shiftError}</small>}
+            <button type="submit">
+              {shiftModal === "open"
+                ? "Buka kasir dan mulai transaksi"
+                : "Tutup dan rekonsiliasi kasir"}
+            </button>
+          </form>
+        </Modal>
+      )}
       {paid && (
         <Modal close={() => setPaid(false)}>
-          <div className="success-modal">
-            <span>
+          <div className="success-modal checkout-receipt">
+            <span className="receipt-success">
               <Check />
             </span>
             <h2>Pembayaran berhasil</h2>
-            <p>
-              Pesanan <b>#{receiptNumber}</b> sudah masuk ke antrean.
-            </p>
-            <div>
-              <strong>{money(total)}</strong>
+            <div className="receipt-paper">
+              <div className="receipt-heading">
+                <strong>#{receiptNumber}</strong>
+                <small>{new Date().toLocaleString("id-ID")}</small>
+              </div>
+              {receiptItems.map((item) => (
+                <div className="receipt-line" key={item.id}>
+                  <span>
+                    {item.qty}× {item.name}
+                    {item.cut ? ` (${item.cut})` : ""}
+                  </span>
+                  <b>{money(item.price * item.qty)}</b>
+                </div>
+              ))}
+              {discount > 0 && (
+                <div className="receipt-line">
+                  <span>Diskon</span>
+                  <b>−{money(discount)}</b>
+                </div>
+              )}
+              <div className="receipt-total">
+                <span>Total</span>
+                <strong>{money(receiptTotal)}</strong>
+              </div>
+              {paymentMethod === "cash" && (
+                <>
+                  <div className="receipt-line">
+                    <span>Diterima</span>
+                    <b>{money(Number(cash))}</b>
+                  </div>
+                  <div className="receipt-line">
+                    <span>Kembalian</span>
+                    <b>{money(Number(cash) - receiptTotal)}</b>
+                  </div>
+                </>
+              )}
               <small>
                 {paymentMethod === "cash" ? "Tunai" : "QRIS"} · Struk 58mm siap
                 dicetak
@@ -1347,6 +1532,33 @@ function MenuManagement() {
   useEffect(() => {
     listCategories(categories)
       .then(setCategories)
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    listProducts<Record<string, unknown>>([])
+      .then((items) => {
+        setProducts(
+          items.map((item, index) => ({
+            id: String(item.id ?? index),
+            name: String(item.name ?? "Menu"),
+            note: String(item.description ?? "Menu kasir"),
+            price: Number(item.sale_price ?? 0),
+            icon: "🍽️",
+            color: "cream",
+            image: String(item.image_path ?? "") || undefined,
+            category: Array.isArray(item.menu_categories)
+              ? String(
+                  (item.menu_categories[0] as { name?: string } | undefined)
+                    ?.name ?? "",
+                )
+              : String(
+                  (item.menu_categories as { name?: string } | null)?.name ??
+                    "",
+                ),
+            allowsCutChoice: Boolean(item.allows_chicken_cut_choice),
+          })),
+        );
+      })
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -1437,6 +1649,40 @@ function MenuManagement() {
             ))}
             {activeCategory !== "Semua" && (
               <div className="category-actions">
+                <button
+                  disabled={categories.indexOf(activeCategory) === 0}
+                  onClick={async () => {
+                    const index = categories.indexOf(activeCategory);
+                    if (index <= 0) return;
+                    const next = [...categories];
+                    [next[index - 1], next[index]] = [
+                      next[index],
+                      next[index - 1],
+                    ];
+                    setCategories(next);
+                    await reorderCategories(next);
+                  }}
+                >
+                  Naik
+                </button>
+                <button
+                  disabled={
+                    categories.indexOf(activeCategory) === categories.length - 1
+                  }
+                  onClick={async () => {
+                    const index = categories.indexOf(activeCategory);
+                    if (index < 0 || index >= categories.length - 1) return;
+                    const next = [...categories];
+                    [next[index], next[index + 1]] = [
+                      next[index + 1],
+                      next[index],
+                    ];
+                    setCategories(next);
+                    await reorderCategories(next);
+                  }}
+                >
+                  Turun
+                </button>
                 <button onClick={() => setCategoryEditor(true)}>
                   Edit kategori
                 </button>
@@ -1477,52 +1723,58 @@ function MenuManagement() {
                 </tr>
               </thead>
               <tbody>
-                {products.map((item, i) => (
-                  <tr key={item.id}>
-                    <td>
-                      <div className={`mini-food ${item.color}`}>
-                        {item.image ? (
-                          <img src={item.image} alt={item.name} />
-                        ) : (
-                          item.icon
-                        )}
-                      </div>
-                      <strong>{item.name}</strong>
-                    </td>
-                    <td>{categories[i % categories.length]}</td>
-                    <td>
-                      <strong>{money(item.price)}</strong>
-                    </td>
-                    <td>
-                      <button
-                        className="recipe-count"
-                        onClick={() => setRecipeProduct(item)}
-                      >
-                        Atur resep
-                      </button>
-                    </td>
-                    <td>
-                      <span className="status success">Aktif</span>
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <button onClick={() => setEditingProduct(item)}>
-                          ✎
-                        </button>
+                {products
+                  .filter(
+                    (item) =>
+                      activeCategory === "Semua" ||
+                      item.category === activeCategory,
+                  )
+                  .map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <div className={`mini-food ${item.color}`}>
+                          {item.image ? (
+                            <img src={item.image} alt={item.name} />
+                          ) : (
+                            item.icon
+                          )}
+                        </div>
+                        <strong>{item.name}</strong>
+                      </td>
+                      <td>{item.category || "Tanpa kategori"}</td>
+                      <td>
+                        <strong>{money(item.price)}</strong>
+                      </td>
+                      <td>
                         <button
-                          onClick={async () => {
-                            await deleteProduct(String(item.id));
-                            setProducts((old) =>
-                              old.filter((x) => x.id !== item.id),
-                            );
-                          }}
+                          className="recipe-count"
+                          onClick={() => setRecipeProduct(item)}
                         >
-                          ×
+                          Atur resep
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        <span className="status success">Aktif</span>
+                      </td>
+                      <td>
+                        <div className="row-actions">
+                          <button onClick={() => setEditingProduct(item)}>
+                            ✎
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await deleteProduct(String(item.id));
+                              setProducts((old) =>
+                                old.filter((x) => x.id !== item.id),
+                              );
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </section>
@@ -1625,8 +1877,57 @@ function MenuManagement() {
                   Resep penjualan
                   <div className="ingredient-placeholder">
                     {draftComponents.map((line, index) => (
-                      <span key={`${line.inventoryItemId}-${index}`}>
+                      <span
+                        className="draft-component-row"
+                        key={`${line.inventoryItemId}-${index}`}
+                      >
                         {line.inventoryName} — {line.quantity}
+                        <select
+                          aria-label="Pilih bahan"
+                          value={line.inventoryItemId}
+                          onChange={(event) => {
+                            const item = inventoryOptions.find(
+                              (option) => option.id === event.target.value,
+                            );
+                            if (!item) return;
+                            setDraftComponents((current) =>
+                              current.map((entry, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...entry,
+                                      inventoryItemId: item.id,
+                                      inventoryName: item.name,
+                                    }
+                                  : entry,
+                              ),
+                            );
+                          }}
+                        >
+                          {inventoryOptions.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          aria-label="Jumlah bahan"
+                          type="number"
+                          min="0.001"
+                          step="0.001"
+                          value={line.quantity}
+                          onChange={(event) =>
+                            setDraftComponents((current) =>
+                              current.map((entry, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...entry,
+                                      quantity: Number(event.target.value),
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
                         <button
                           type="button"
                           onClick={() =>
@@ -1645,12 +1946,13 @@ function MenuManagement() {
                       type="button"
                       disabled={!inventoryOptions.length}
                       onClick={() => {
-                        const item = inventoryOptions.find(
-                          (option) =>
-                            !draftComponents.some(
-                              (line) => line.inventoryItemId === option.id,
-                            ),
-                        );
+                        const item =
+                          inventoryOptions.find(
+                            (option) =>
+                              !draftComponents.some(
+                                (line) => line.inventoryItemId === option.id,
+                              ),
+                          ) ?? inventoryOptions[0];
                         if (!item) return;
                         setDraftComponents((current) => [
                           ...current,
@@ -1696,6 +1998,7 @@ function MenuManagement() {
                         icon: "🍽️",
                         color: "cream",
                         image: menuImage || undefined,
+                        category: menuCategory,
                       },
                     ]);
                   }
@@ -1739,6 +2042,7 @@ function MenuManagement() {
                 name: String(form.get("name")),
                 price: Number(form.get("price")),
                 note: String(form.get("description") || "Menu kasir"),
+                category: String(form.get("category")),
               };
               await updateProduct(String(editingProduct.id), {
                 name: updated.name,

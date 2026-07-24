@@ -379,7 +379,9 @@ export async function listProducts<T>(fallback: T[]) {
   if (!supabase) return readLocal<T[]>(PRODUCT_KEY, fallback);
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,description,sale_price,is_active,menu_categories(name)")
+    .select(
+      "id,name,description,sale_price,image_path,allows_chicken_cut_choice,sort_order,is_active,menu_categories(name,sort_order)",
+    )
     .eq("outlet_id", outletId)
     .eq("is_active", true)
     .order("sort_order")
@@ -387,6 +389,23 @@ export async function listProducts<T>(fallback: T[]) {
   if (error) throw error;
   if (!data?.length) return fallback;
   return data as unknown as T[];
+}
+
+export async function reorderCategories(names: string[]) {
+  const supabase = getSupabaseBrowserClient();
+  writeLocal("sabana-category-order", names);
+  if (!supabase) return;
+  const results = await Promise.all(
+    names.map((name, index) =>
+      supabase
+        .from("menu_categories")
+        .update({ sort_order: index })
+        .eq("outlet_id", outletId)
+        .eq("name", name),
+    ),
+  );
+  const failed = results.find((result) => result.error);
+  if (failed?.error) throw failed.error;
 }
 
 export async function createProduct(draft: ProductDraft) {
@@ -505,11 +524,18 @@ export async function saveProductComponents(
   productId: string,
   components: ProductComponentDraft[],
 ) {
+  const normalized = Array.from(
+    new Map(
+      components
+        .filter((component) => component.quantity > 0)
+        .map((component) => [component.inventoryItemId, component]),
+    ).values(),
+  );
   const local = readLocal<Record<string, ProductComponentDraft[]>>(
     COMPONENT_KEY,
     {},
   );
-  writeLocal(COMPONENT_KEY, { ...local, [productId]: components });
+  writeLocal(COMPONENT_KEY, { ...local, [productId]: normalized });
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(productId)) return;
   const { error: deleteError } = await supabase
@@ -517,9 +543,9 @@ export async function saveProductComponents(
     .delete()
     .eq("product_id", productId);
   if (deleteError) throw deleteError;
-  if (components.length) {
+  if (normalized.length) {
     const { error } = await supabase.from("product_components").insert(
-      components.map((component) => ({
+      normalized.map((component) => ({
         product_id: productId,
         inventory_item_id: component.inventoryItemId,
         quantity: component.quantity,
@@ -609,7 +635,7 @@ export type ProductionMenuRecord = {
 async function ensureInventoryItem(
   name: string,
   unit: string,
-  kind: "raw" | "finished",
+  kind: "raw_material" | "production_output",
 ) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return crypto.randomUUID();
@@ -719,7 +745,7 @@ export async function saveProductionMenu(
   const itemId = await ensureInventoryItem(
     value.inputName,
     value.inputUnit,
-    "raw",
+    "raw_material",
   );
   let recipeId = id;
   if (recipeId && /^[0-9a-f-]{36}$/i.test(recipeId)) {
@@ -777,7 +803,11 @@ export async function saveProductionOutput(
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(recipeId))
     return lineId ?? crypto.randomUUID();
-  const itemId = await ensureInventoryItem(value.name, value.unit, "finished");
+  const itemId = await ensureInventoryItem(
+    value.name,
+    value.unit,
+    "production_output",
+  );
   if (lineId && /^[0-9a-f-]{36}$/i.test(lineId)) {
     const { error } = await supabase
       .from("production_recipe_lines")
@@ -1174,7 +1204,16 @@ export async function listDisplayStock() {
   if (!supabase) return [];
   const { data, error } = await supabase.rpc("list_display_stock");
   if (error) return [];
-  return (data ?? []).map(
+  type DisplayStockRow = {
+    id: string;
+    itemName: string;
+    quantity: number;
+    producedAt: string;
+    ageMinutes: number;
+    limitMinutes: number;
+    status: string;
+  };
+  const batches: DisplayStockRow[] = (data ?? []).map(
     (row: {
       id: string;
       item_name: string;
@@ -1192,6 +1231,24 @@ export async function listDisplayStock() {
       limitMinutes: Number(row.display_limit_minutes),
       status: row.status,
     }),
+  );
+  return Array.from(
+    batches
+      .reduce<Map<string, DisplayStockRow>>((grouped, batch) => {
+        const current = grouped.get(batch.itemName);
+        if (!current) {
+          grouped.set(batch.itemName, batch);
+        } else {
+          current.quantity += batch.quantity;
+          current.ageMinutes = Math.max(current.ageMinutes, batch.ageMinutes);
+          if (batch.producedAt < current.producedAt) {
+            current.producedAt = batch.producedAt;
+            current.id = batch.id;
+          }
+        }
+        return grouped;
+      }, new Map())
+      .values(),
   );
 }
 

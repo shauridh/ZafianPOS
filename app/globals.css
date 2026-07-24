@@ -935,15 +935,31 @@ button {
   margin: 3px 0;
 }
 .pos-shift {
-  font-size: 8px;
-  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 9px;
+  font-weight: 700;
   white-space: nowrap;
+}
+.pos-shift.active {
+  color: #197243;
+  border-color: #b9dfc9;
+  background: #effaf3;
+}
+.pos-shift.inactive {
+  color: var(--red);
+  border-color: #e7c4c4;
+  background: #fff6f6;
 }
 .header-display-stock {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  margin: 0 auto;
+  justify-content: center;
+  flex: 1;
 }
 .header-display-stock > span {
   font-size: 7px;
@@ -958,6 +974,29 @@ button {
   background: #f7f3ee;
   border-radius: 8px;
   padding: 6px 9px;
+  border: 1px solid transparent;
+}
+.header-display-stock > div.display-safe {
+  background: #eef8f1;
+  border-color: #c7e5d0;
+}
+.header-display-stock > div.display-warning {
+  background: #fff7df;
+  border-color: #eed894;
+  color: #8a6500;
+}
+.header-display-stock > div.display-danger {
+  background: #fff0ed;
+  border-color: #efb4a8;
+  color: #b42a1c;
+}
+.header-display-stock > div.display-empty {
+  background: #382f2d;
+  border-color: #382f2d;
+  color: #fff;
+}
+.header-display-stock > div.display-empty small {
+  color: #eadfdb;
 }
 .header-display-stock small {
   font-size: 7px;
@@ -1234,6 +1273,21 @@ button {
   font-size: 8px;
   font-weight: 500;
   padding: 4px;
+}
+.ingredient-placeholder .draft-component-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 74px auto;
+  align-items: center;
+  gap: 7px;
+}
+.draft-component-row select,
+.draft-component-row input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 8px;
+  font-size: 9px;
 }
 .ingredient-placeholder button {
   border: 0;
@@ -1607,6 +1661,48 @@ button {
   font-size: 10px;
   font-weight: 700;
   width: 100%;
+}
+.checkout-receipt {
+  max-height: 78vh;
+  overflow: auto;
+}
+.success-modal > .receipt-paper {
+  background: #fff;
+  border: 1px dashed #c9bcae;
+  border-radius: 4px;
+  text-align: left;
+  padding: 15px;
+}
+.receipt-heading,
+.receipt-line,
+.receipt-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 6px 0;
+}
+.receipt-heading {
+  border-bottom: 1px dashed #d8cec3;
+  margin-bottom: 5px;
+}
+.checkout-receipt .receipt-heading strong {
+  font-size: 14px;
+}
+.receipt-line span,
+.receipt-line b {
+  font-size: 9px;
+}
+.receipt-line b {
+  white-space: nowrap;
+}
+.receipt-total {
+  border-top: 1px dashed #d8cec3;
+  border-bottom: 1px dashed #d8cec3;
+  margin-top: 6px;
+}
+.checkout-receipt .receipt-total strong {
+  font-size: 15px;
 }
 .payment-total,
 .cash-received {
