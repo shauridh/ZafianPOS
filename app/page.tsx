@@ -55,6 +55,7 @@ import {
   getActiveShift,
   getOperatorSession,
   listCategories,
+  listCashMovements,
   listDisplayStock,
   listInventory,
   listInventoryMovements,
@@ -130,11 +131,11 @@ type MenuItem = {
 };
 
 const defaultBusiness: BusinessProfile = {
-  name: "Sabana",
-  tagline: "Operation Hub",
+  name: "ZafianPOS",
+  tagline: "",
   primaryColor: "#a80f16",
   sidebarColor: "#211d1a",
-  outlet: "Outlet Utama",
+  outlet: "Outlet",
 };
 
 const money = (value: number) =>
@@ -143,80 +144,6 @@ const money = (value: number) =>
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(value);
-
-const cutStock: Record<Cut, number> = {
-  Dada: 6,
-  "Paha atas": 4,
-  "Paha bawah": 4,
-  Sayap: 4,
-};
-
-const menuItems: MenuItem[] = [
-  {
-    id: 1,
-    name: "Ayam Crispy",
-    note: "1 potong",
-    price: 13000,
-    icon: "🍗",
-    color: "sun",
-  },
-  {
-    id: 2,
-    name: "Paket Ayam Nasi",
-    note: "Ayam + nasi",
-    price: 19000,
-    icon: "🍱",
-    color: "cream",
-  },
-  {
-    id: 3,
-    name: "Rice Bowl",
-    note: "Ayam suwir",
-    price: 16000,
-    icon: "🥣",
-    color: "orange",
-  },
-  {
-    id: 4,
-    name: "Paket Berdua",
-    note: "2 ayam + 2 nasi",
-    price: 36000,
-    icon: "🍗",
-    color: "red",
-  },
-  {
-    id: 5,
-    name: "Nasi Putih",
-    note: "1 porsi",
-    price: 5000,
-    icon: "🍚",
-    color: "cream",
-  },
-  {
-    id: 6,
-    name: "Air Mineral",
-    note: "600 ml",
-    price: 4000,
-    icon: "💧",
-    color: "blue",
-  },
-  {
-    id: 7,
-    name: "Saus Extra",
-    note: "2 sachet",
-    price: 2000,
-    icon: "🌶️",
-    color: "red",
-  },
-  {
-    id: 8,
-    name: "Kulit Crispy",
-    note: "1 pouch",
-    price: 9000,
-    icon: "✨",
-    color: "sun",
-  },
-];
 
 function Brand({ business }: { business: BusinessProfile }) {
   return (
@@ -352,7 +279,6 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
           }
         >
           <Bell size={19} />
-          <span />
         </button>
         <div className="date-chip">
           <Clock3 size={17} />
@@ -782,18 +708,18 @@ function Dashboard({
           <div className="date-range">
             <label>
               Dari
-              <input type="date" defaultValue="2026-07-01" />
+              <input type="date" />
             </label>
             <span>→</span>
             <label>
               Sampai
-              <input type="date" defaultValue="2026-07-23" />
+              <input type="date" />
             </label>
           </div>
           <button
             className="primary-wide"
             onClick={() => {
-              setPeriod("1–23 Jul 2026");
+              setPeriod("Hari ini");
               setCustomPeriod(false);
             }}
           >
@@ -822,7 +748,7 @@ function Modal({
 }
 
 function POS() {
-  const [catalog, setCatalog] = useState(menuItems);
+  const [catalog, setCatalog] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cutPicker, setCutPicker] = useState<MenuItem | null>(null);
   const [paid, setPaid] = useState(false);
@@ -840,7 +766,7 @@ function POS() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "qris">("cash");
   const [saleBusy, setSaleBusy] = useState(false);
   const [saleError, setSaleError] = useState("");
-  const [receiptNumber, setReceiptNumber] = useState("A-087");
+  const [receiptNumber, setReceiptNumber] = useState("");
   const [receiptItems, setReceiptItems] = useState<CartItem[]>([]);
   const [receiptTotal, setReceiptTotal] = useState(0);
   const [shift, setShift] = useState<{
@@ -978,7 +904,7 @@ function POS() {
         <div>
           <h1>Kasir</h1>
           <p>
-            {channel} ? Pesanan #{receiptNumber}
+            {channel} · {receiptNumber ? `Pesanan #${receiptNumber}` : "Pesanan baru"}
           </p>
         </div>
         <div className="header-display-stock">
@@ -1063,12 +989,19 @@ function POS() {
                 <Plus size={17} />
               </button>
             ))}
+            {!visibleCatalog.length && (
+              <div className="empty-production">
+                <Grid2X2 />
+                <strong>Belum ada menu kasir</strong>
+                <span>Buat menu melalui halaman Menu & Kategori.</span>
+              </div>
+            )}
           </div>
         </main>
         <aside className="cart">
           <div className="cart-head">
             <div>
-              <h2>Pesanan #{receiptNumber}</h2>
+              <h2>{receiptNumber ? `Pesanan #${receiptNumber}` : "Pesanan baru"}</h2>
               <p>
                 <ShoppingBag size={14} /> {channel}
               </p>
@@ -1225,14 +1158,28 @@ function POS() {
             </button>
           </div>
           <div className="cut-grid">
-            {Object.entries(cutStock).map(([cut, stock]) => (
-              <button key={cut} onClick={() => addItem(cutPicker, cut as Cut)}>
+            {displayStock
+              .filter((item) =>
+                ["Dada", "Paha atas", "Paha bawah", "Sayap"].includes(
+                  item.itemName,
+                ),
+              )
+              .map((item) => (
+              <button
+                key={item.id}
+                onClick={() => addItem(cutPicker, item.itemName as Cut)}
+              >
                 <span>♨</span>
-                <strong>{cut}</strong>
-                <small>Tersedia {stock} potong</small>
+                <strong>{item.itemName}</strong>
+                <small>Tersedia {item.quantity} potong</small>
                 <ArrowRight />
               </button>
             ))}
+            {!displayStock.some((item) =>
+              ["Dada", "Paha atas", "Paha bawah", "Sayap"].includes(
+                item.itemName,
+              ),
+            ) && <p>Belum ada potongan ayam di etalase.</p>}
           </div>
         </Modal>
       )}
@@ -1248,7 +1195,7 @@ function POS() {
                   Pembayaran{" "}
                   {paymentMethod === "cash" ? "tunai" : "QRIS manual"}
                 </h2>
-                <p>Total pesanan #{receiptNumber}</p>
+                <p>{receiptNumber ? `Total pesanan #${receiptNumber}` : "Total pesanan baru"}</p>
               </div>
             </div>
             <button onClick={() => setPayment(false)}>
@@ -1641,20 +1588,14 @@ function POS() {
 }
 
 function MenuManagement() {
-  const [categories, setCategories] = useState([
-    "Paket",
-    "Ayam",
-    "Rice bowl",
-    "Tambahan",
-    "Minuman",
-  ]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState("Semua");
-  const [products, setProducts] = useState(menuItems);
+  const [products, setProducts] = useState<MenuItem[]>([]);
   const [modal, setModal] = useState<"menu" | "category" | null>(null);
   const [newName, setNewName] = useState("");
   const [menuImage, setMenuImage] = useState("");
   const [menuPrice, setMenuPrice] = useState("");
-  const [menuCategory, setMenuCategory] = useState(categories[0]);
+  const [menuCategory, setMenuCategory] = useState("");
   const [imageError, setImageError] = useState("");
   const [editingProduct, setEditingProduct] = useState<MenuItem | null>(null);
   const [recipeProduct, setRecipeProduct] = useState<MenuItem | null>(null);
@@ -1675,8 +1616,11 @@ function MenuManagement() {
     ProductComponentDraft[]
   >([]);
   useEffect(() => {
-    listCategories(categories)
-      .then(setCategories)
+    listCategories([])
+      .then((items) => {
+        setCategories(items);
+        setMenuCategory((current) => current || items[0] || "");
+      })
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -1779,7 +1723,7 @@ function MenuManagement() {
                 <p>Urutan tampil di kasir</p>
               </div>
             </div>
-            {["Semua", ...categories].map((item, i) => (
+            {["Semua", ...categories].map((item) => (
               <button
                 className={activeCategory === item ? "active" : ""}
                 key={item}
@@ -1789,7 +1733,8 @@ function MenuManagement() {
                 <small>
                   {item === "Semua"
                     ? products.length
-                    : Math.max(1, products.length - i)}
+                    : products.filter((product) => product.category === item)
+                        .length}
                 </small>
                 {item !== "Semua" && <b>⋮</b>}
               </button>
@@ -1922,6 +1867,15 @@ function MenuManagement() {
                       </td>
                     </tr>
                   ))}
+                {!products.some(
+                  (item) =>
+                    activeCategory === "Semua" ||
+                    item.category === activeCategory,
+                ) && (
+                  <tr>
+                    <td colSpan={6}>Belum ada menu pada kategori ini.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </section>
@@ -2471,84 +2425,30 @@ function Production() {
   const [done, setDone] = useState<{ batch: string; total: number } | null>(
     null,
   );
-  const [productionMenus, setProductionMenus] = useState([
-    {
-      id: "fried-chicken",
-      name: "Goreng ayam",
-      inputName: "Ayam mentah",
-      inputUnit: "pak",
-    },
-    { id: "rice", name: "Masak nasi", inputName: "Beras", inputUnit: "kg" },
-  ]);
-  const [activeMenu, setActiveMenu] = useState("fried-chicken");
-  const [inputs, setInputs] = useState([
-    {
-      id: "chicken-raw",
-      menuId: "fried-chicken",
-      name: "Ayam mentah",
-      qty: 1,
-      unit: "pak",
-      stock: 12,
-    },
-    {
-      id: "flour",
-      menuId: "fried-chicken",
-      name: "Tepung",
-      qty: 1 / 3,
-      unit: "pak",
-      stock: 3,
-    },
-    {
-      id: "rice-raw",
-      menuId: "rice",
-      name: "Beras",
-      qty: 1,
-      unit: "kg",
-      stock: 10,
-    },
-  ]);
-  const [outputs, setOutputs] = useState([
-    {
-      id: "wing",
-      menuId: "fried-chicken",
-      name: "Sayap",
-      qty: 2,
-      unit: "pcs",
-      stock: 4,
-    },
-    {
-      id: "upper",
-      menuId: "fried-chicken",
-      name: "Paha atas",
-      qty: 2,
-      unit: "pcs",
-      stock: 4,
-    },
-    {
-      id: "lower",
-      menuId: "fried-chicken",
-      name: "Paha bawah",
-      qty: 2,
-      unit: "pcs",
-      stock: 4,
-    },
-    {
-      id: "breast",
-      menuId: "fried-chicken",
-      name: "Dada",
-      qty: 3,
-      unit: "pcs",
-      stock: 6,
-    },
-    {
-      id: "rice-portion",
-      menuId: "rice",
-      name: "Nasi siap saji",
-      qty: 10,
-      unit: "porsi",
-      stock: 21,
-    },
-  ]);
+  const [productionMenus, setProductionMenus] = useState<
+    Array<{ id: string; name: string; inputName: string; inputUnit: string }>
+  >([]);
+  const [activeMenu, setActiveMenu] = useState("");
+  const [inputs, setInputs] = useState<
+    Array<{
+      id: string;
+      menuId: string;
+      name: string;
+      qty: number;
+      unit: string;
+      stock: number;
+    }>
+  >([]);
+  const [outputs, setOutputs] = useState<
+    Array<{
+      id: string;
+      menuId: string;
+      name: string;
+      qty: number;
+      unit: string;
+      stock: number;
+    }>
+  >([]);
   const [outputModal, setOutputModal] = useState<{
     mode: "add" | "edit";
     id?: string;
@@ -2588,11 +2488,10 @@ function Production() {
   useEffect(() => {
     listProductionMenus()
       .then((data) => {
-        if (!data.menus.length) return;
         setProductionMenus(data.menus);
         setInputs(data.inputs);
         setOutputs(data.outputs);
-        setActiveMenu(data.menus[0].id);
+        setActiveMenu(data.menus[0]?.id ?? "");
       })
       .catch(() => undefined);
   }, []);
@@ -2611,35 +2510,40 @@ function Production() {
       })
       .catch(() => undefined);
   }, []);
-  const [batches, setBatches] = useState([
-    {
-      time: "13:42",
-      batch: "#B-025",
-      input: "2 pak",
-      result: "18 pcs",
-      operator: "Dina",
-      status: "Sesuai",
-    },
-    {
-      time: "11:18",
-      batch: "#B-024",
-      input: "2 pak",
-      result: "18 pcs",
-      operator: "Raka",
-      status: "Sesuai",
-    },
-    {
-      time: "09:35",
-      batch: "#B-023",
-      input: "2 pak",
-      result: "17 pcs",
-      operator: "Dina",
-      status: "Susut 1",
-    },
-  ]);
+  const [batches, setBatches] = useState<
+    Array<{
+      time: string;
+      batch: string;
+      input: string;
+      result: string;
+      operator: string;
+      status: string;
+    }>
+  >([]);
+  useEffect(() => {
+    loadReportDataset("Produksi", "Hari ini")
+      .then((data) =>
+        setBatches(
+          (data?.rows ?? []).map((row) => ({
+            time: row[1],
+            batch: row[0],
+            input: row[2],
+            result: "-",
+            operator: "-",
+            status: row[3],
+          })),
+        ),
+      )
+      .catch(() => undefined);
+  }, []);
   const menu =
     productionMenus.find((item) => item.id === activeMenu) ??
-    productionMenus[0]!;
+    productionMenus[0] ?? {
+      id: "",
+      name: "Belum ada menu produksi",
+      inputName: "",
+      inputUnit: "unit",
+    };
   const activeOutputs = outputs.filter((item) => item.menuId === activeMenu);
   const activeInputs = inputs.filter((item) => item.menuId === activeMenu);
   const estimatedTotal = activeOutputs.reduce(
@@ -2681,7 +2585,7 @@ function Production() {
           batch: batchNumber,
           input: `${packs} ${menu.inputUnit}`,
           result: `${completed.totalOutput} ${activeOutputs[0]?.unit ?? "unit"}`,
-          operator: "Dina",
+          operator: "Operator",
           status: "Sesuai",
         },
         ...current,
@@ -2729,11 +2633,13 @@ function Production() {
               ))}
             </div>
             <div className="production-menu-actions">
-              <button
-                onClick={() => setMenuModal({ mode: "edit", id: menu.id })}
-              >
-                Edit menu
-              </button>
+              {menu.id && (
+                <button
+                  onClick={() => setMenuModal({ mode: "edit", id: menu.id })}
+                >
+                  Edit menu
+                </button>
+              )}
               {productionMenus.length > 1 && (
                 <button
                   onClick={async () => {
@@ -2770,7 +2676,10 @@ function Production() {
             <div className="recipe-preview">
               <div className="recipe-preview-head">
                 <h3>Kebutuhan otomatis</h3>
-                <button onClick={() => setInputModal({ mode: "add" })}>
+                <button
+                  disabled={!menu.id}
+                  onClick={() => setInputModal({ mode: "add" })}
+                >
                   <Plus /> Bahan
                 </button>
               </div>
@@ -2842,7 +2751,10 @@ function Production() {
                 <h2>Hasil produksi</h2>
                 <p>Stok bertambah otomatis saat batch diselesaikan.</p>
               </div>
-              <button onClick={() => setOutputModal({ mode: "add" })}>
+              <button
+                disabled={!menu.id}
+                onClick={() => setOutputModal({ mode: "add" })}
+              >
                 <Plus /> Tambah
               </button>
             </div>
@@ -2908,7 +2820,7 @@ function Production() {
                 </strong>
                 <span>
                   {oilActive
-                    ? "Dimulai hari ini"
+                    ? `Dimulai ${new Date(oilCycle!.startedAt).toLocaleDateString("id-ID")}`
                     : "Catat pengisian/pergantian pertama"}
                 </span>
               </div>
@@ -3219,7 +3131,10 @@ function Production() {
           >
             <label>
               Tanggal pengisian
-              <input type="date" defaultValue="2026-07-23" />
+              <input
+                type="date"
+                defaultValue={new Date().toISOString().slice(0, 10)}
+              />
             </label>
             <div>
               <label>
@@ -3558,49 +3473,7 @@ function ProductionMenuModal({
 }
 
 function Inventory() {
-  const [rows, setRows] = useState([
-    [
-      "Ayam mentah",
-      "Bahan baku",
-      "12 pak",
-      "Cukup untuk 6 batch",
-      "good",
-      "local-chicken",
-    ],
-    [
-      "Tepung bumbu",
-      "Bahan baku",
-      "1,3 pak",
-      "Cukup untuk 3 pak ayam",
-      "low",
-      "local-flour",
-    ],
-    ["Minyak goreng", "Bahan baku", "9 pouch", "18 liter", "good", "local-oil"],
-    [
-      "Kemasan ayam",
-      "Pendamping",
-      "84 pcs",
-      "Batas minimum 50",
-      "good",
-      "local-packaging",
-    ],
-    [
-      "Nasi siap saji",
-      "Siap jual",
-      "21 porsi",
-      "Dibuat 10:30",
-      "good",
-      "local-rice",
-    ],
-    [
-      "Saus sachet",
-      "Pendamping",
-      "38 pcs",
-      "Batas minimum 40",
-      "low",
-      "local-sauce",
-    ],
-  ]);
+  const [rows, setRows] = useState<string[][]>([]);
   const [stockModal, setStockModal] = useState(false);
   const [stockAction, setStockAction] = useState<{
     type: "purchase" | "correction";
@@ -3661,7 +3534,7 @@ function Inventory() {
               <Boxes />
             </span>
             <p>
-              Total item<strong>28</strong>
+              Total item<strong>{rows.length}</strong>
             </p>
           </div>
           <div>
@@ -3669,7 +3542,8 @@ function Inventory() {
               <PackageOpen />
             </span>
             <p>
-              Stok menipis<strong>3 item</strong>
+              Stok menipis
+              <strong>{rows.filter((row) => row[4] === "low").length} item</strong>
             </p>
           </div>
           <div>
@@ -3677,7 +3551,8 @@ function Inventory() {
               <Check />
             </span>
             <p>
-              Stok sesuai<strong>25 item</strong>
+              Stok sesuai
+              <strong>{rows.filter((row) => row[4] === "good").length} item</strong>
             </p>
           </div>
         </div>
@@ -3773,6 +3648,11 @@ function Inventory() {
                   </td>
                 </tr>
               ))}
+              {!visibleRows.length && (
+                <tr>
+                  <td colSpan={6}>Belum ada bahan atau persediaan.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </section>
@@ -4189,9 +4069,21 @@ function Drawer() {
       time: string;
     }>
   >([]);
+  const [salesSummary, setSalesSummary] = useState<{
+    cashCount: number;
+    cashTotal: number;
+    nonCashCount: number;
+    nonCashTotal: number;
+  }>({ cashCount: 0, cashTotal: 0, nonCashCount: 0, nonCashTotal: 0 });
+  const [cashoutThreshold, setCashoutThreshold] = useState(0);
   useEffect(() => {
-    getActiveShift()
-      .then((active) =>
+    Promise.all([
+      getActiveShift(),
+      listCashMovements(),
+      loadReportDataset("Penjualan", "Hari ini"),
+      loadOperationalSettings(),
+    ])
+      .then(([active, cashMovements, sales, settings]) => {
         setShift(
           active
             ? {
@@ -4200,8 +4092,27 @@ function Drawer() {
                 openedAt: active.openedAt,
               }
             : null,
-        ),
-      )
+        );
+        setMovements(cashMovements);
+        setSalesSummary(
+          (sales?.rows ?? []).reduce(
+            (summary, row) => {
+              const isCash = String(row[2]).toLowerCase() === "cash";
+              const amount = Number(row[3] ?? 0);
+              if (isCash) {
+                summary.cashCount += 1;
+                summary.cashTotal += amount;
+              } else {
+                summary.nonCashCount += 1;
+                summary.nonCashTotal += amount;
+              }
+              return summary;
+            },
+            { cashCount: 0, cashTotal: 0, nonCashCount: 0, nonCashTotal: 0 },
+          ),
+        );
+        setCashoutThreshold(settings.cashoutPinThreshold);
+      })
       .catch(() => undefined);
   }, []);
   return (
@@ -4339,7 +4250,9 @@ function Drawer() {
             <div className="panel-head">
               <div>
                 <h2>Ringkasan pembayaran</h2>
-                <p>86 transaksi hari ini</p>
+                <p>
+                  {salesSummary.cashCount + salesSummary.nonCashCount} transaksi hari ini
+                </p>
               </div>
             </div>
             <div className="payment-summary">
@@ -4348,18 +4261,18 @@ function Drawer() {
                   <Banknote />
                 </span>
                 <p>
-                  Tunai<small>34 transaksi</small>
+                  Tunai<small>{salesSummary.cashCount} transaksi</small>
                 </p>
-                <strong>Rp 826.000</strong>
+                <strong>{money(salesSummary.cashTotal)}</strong>
               </div>
               <div>
                 <span className="payment-icon qris">
                   <Grid2X2 />
                 </span>
                 <p>
-                  QRIS manual<small>52 transaksi</small>
+                  Non-tunai<small>{salesSummary.nonCashCount} transaksi</small>
                 </p>
-                <strong>Rp 1.654.000</strong>
+                <strong>{money(salesSummary.nonCashTotal)}</strong>
               </div>
             </div>
             <div className="drawer-note">
@@ -4471,7 +4384,9 @@ function Drawer() {
             {modal === "out" && (
               <label>
                 PIN owner{" "}
-                <small>Jika nominal ≥ Rp50.000 atau menyentuh modal</small>
+                <small>
+                  Jika nominal ≥ {money(cashoutThreshold)} atau menyentuh modal
+                </small>
                 <input
                   name="pin"
                   inputMode="numeric"
@@ -4563,84 +4478,59 @@ function Reports() {
     columns: string[];
     rows: string[][];
   } | null>(null);
-  const reportData: Record<
+  const emptyReport: Record<
     string,
     { kpis: string[][]; columns: string[]; rows: string[][] }
   > = {
     Penjualan: {
       kpis: [
-        ["Penjualan bersih", "Rp2.480.000", "+12,4% dari periode lalu"],
-        ["Jumlah transaksi", "86", "+8 transaksi"],
-        ["Rata-rata transaksi", "Rp28.837", "+3,1%"],
-        ["Item terjual", "174", "2,02 item/transaksi"],
+        ["Penjualan bersih", "0", "Belum ada data"],
+        ["Jumlah transaksi", "0", "Belum ada data"],
+        ["Rata-rata transaksi", "0", "Belum ada data"],
+        ["Transaksi selesai", "0", "Belum ada data"],
       ],
-      columns: ["Jam", "Transaksi", "Tunai", "QRIS", "Total"],
-      rows: [
-        ["08:00–10:00", "18", "Rp186.000", "Rp302.000", "Rp488.000"],
-        ["10:00–12:00", "25", "Rp240.000", "Rp478.000", "Rp718.000"],
-        ["12:00–14:00", "31", "Rp310.000", "Rp654.000", "Rp964.000"],
-        ["14:00–16:00", "12", "Rp90.000", "Rp220.000", "Rp310.000"],
-      ],
+      columns: ["Waktu", "Struk", "Pembayaran", "Total", "Status"],
+      rows: [],
     },
     Produk: {
       kpis: [
-        ["Menu terjual", "174 item", "+14 item"],
-        ["Menu terlaris", "Paket Ayam Nasi", "46 item"],
-        ["Bagian favorit", "Dada", "42 potong"],
-        ["Menu nonaktif", "2 menu", "Stok komponen habis"],
+        ["Menu terjual", "0", "Belum ada data"],
+        ["Menu terlaris", "-", "Belum ada data"],
+        ["Menu aktif", "0", "Belum ada data"],
+        ["Omzet", "0", "Belum ada data"],
       ],
-      columns: ["Menu", "Kategori", "Terjual", "Omzet", "Kontribusi"],
-      rows: [
-        ["Paket Ayam Nasi", "Paket", "46", "Rp874.000", "35,2%"],
-        ["Ayam Crispy", "Ayam", "32", "Rp416.000", "16,8%"],
-        ["Rice Bowl", "Rice bowl", "24", "Rp384.000", "15,5%"],
-        ["Paket Berdua", "Paket", "18", "Rp648.000", "26,1%"],
-      ],
+      columns: ["Menu", "Terjual", "Omzet"],
+      rows: [],
     },
     Produksi: {
       kpis: [
-        ["Batch hari ini", "5 batch", "10 pak ayam"],
-        ["Hasil produksi", "89 potong", "Standar 90"],
-        ["Efisiensi", "98,9%", "Susut 1 potong"],
-        ["Tepung terpakai", "3,33 pak", "Sesuai rasio"],
+        ["Batch", "0", "Belum ada data"],
+        ["Total input", "0", "Belum ada data"],
+        ["Selesai", "0", "Belum ada data"],
+        ["Batal", "0", "Belum ada data"],
       ],
-      columns: ["Batch", "Waktu", "Bahan", "Hasil", "Operator"],
-      rows: [
-        ["#B-025", "13:42", "2 pak ayam", "18 potong", "Dina"],
-        ["#B-024", "11:18", "2 pak ayam", "18 potong", "Raka"],
-        ["#B-023", "09:35", "2 pak ayam", "17 potong", "Dina"],
-        ["#B-022", "08:20", "2 pak ayam", "18 potong", "Dina"],
-      ],
+      columns: ["Batch", "Waktu", "Jumlah", "Status"],
+      rows: [],
     },
     Persediaan: {
       kpis: [
-        ["Total item", "28 item", "25 aman"],
-        ["Stok menipis", "3 item", "Perlu restock"],
-        ["Nilai stok", "Rp4.820.000", "Estimasi saat ini"],
-        ["Selisih opname", "-2 pcs", "Kemasan ayam"],
+        ["Total item", "0", "Belum ada data"],
+        ["Menipis", "0", "Belum ada data"],
+        ["Aman", "0", "Belum ada data"],
+        ["Negatif", "0", "Belum ada data"],
       ],
       columns: ["Item", "Kelompok", "Stok", "Minimum", "Status"],
-      rows: [
-        ["Ayam mentah", "Bahan baku", "12 pak", "4 pak", "Aman"],
-        ["Tepung bumbu", "Bahan baku", "1,3 pak", "2 pak", "Menipis"],
-        ["Minyak goreng", "Bahan baku", "9 pouch", "4 pouch", "Aman"],
-        ["Saus sachet", "Pendamping", "38 pcs", "40 pcs", "Menipis"],
-      ],
+      rows: [],
     },
     Kas: {
       kpis: [
-        ["Saldo drawer", "Rp726.000", "Termasuk modal"],
-        ["Penjualan tunai", "Rp826.000", "34 transaksi"],
-        ["Penjualan QRIS", "Rp1.654.000", "52 transaksi"],
-        ["Cash in/out", "-Rp50.000", "3 aktivitas"],
+        ["Jumlah shift", "0", "Belum ada data"],
+        ["Shift aktif", "0", "Belum ada data"],
+        ["Modal awal", "0", "Belum ada data"],
+        ["Selisih", "0", "Belum ada data"],
       ],
-      columns: ["Waktu", "Aktivitas", "Metode", "Nominal", "Operator"],
-      rows: [
-        ["12:46", "Belanja outlet", "Cash-out", "-Rp50.000", "Dina"],
-        ["09:15", "Tambah kembalian", "Cash-in", "+Rp100.000", "Dina"],
-        ["08:30", "Cash drop", "Cash-out", "-Rp100.000", "Dina"],
-        ["08:02", "Buka shift", "Modal awal", "Rp350.000", "Dina"],
-      ],
+      columns: ["Dibuka", "Ditutup", "Modal", "Kas akhir", "Selisih"],
+      rows: [],
     },
   };
   useEffect(() => {
@@ -4650,13 +4540,7 @@ function Reports() {
   }, [tab, period]);
   const data =
     liveReport ?? {
-      kpis: reportData[tab].kpis.map((kpi) => [
-        kpi[0],
-        "0",
-        "Belum ada data",
-      ]),
-      columns: reportData[tab].columns,
-      rows: [],
+      ...emptyReport[tab],
     };
   const downloadCsv = () => {
     const csv = [data.columns, ...data.rows]
@@ -4730,62 +4614,46 @@ function Reports() {
                   <p>Omzet dan jumlah transaksi · {period}</p>
                 </div>
               </div>
-              <div className="line-chart">
-                <svg viewBox="0 0 600 170" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="0%"
-                        stopColor="var(--red)"
-                        stopOpacity=".22"
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="var(--red)"
-                        stopOpacity="0"
-                      />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M0,145 C60,140 65,110 120,118 S185,82 240,94 S300,38 360,61 S430,26 480,48 S545,40 600,18 L600,170 L0,170Z"
-                    fill="url(#fill)"
-                  />
-                  <path
-                    d="M0,145 C60,140 65,110 120,118 S185,82 240,94 S300,38 360,61 S430,26 480,48 S545,40 600,18"
-                    fill="none"
-                    stroke="var(--red)"
-                    strokeWidth="4"
-                  />
-                </svg>
-                <div>
-                  {["08", "09", "10", "11", "12", "13", "14", "15"].map((x) => (
-                    <span key={x}>{x}:00</span>
-                  ))}
-                </div>
+              <div className="chart">
+                {data.rows.slice(0, 12).reverse().map((row, index) => {
+                  const maximum = Math.max(
+                    1,
+                    ...data.rows.map((entry) => Number(entry[3] ?? 0)),
+                  );
+                  return (
+                    <div
+                      key={`${row[0]}-${index}`}
+                      style={{
+                        height: `${Math.max(4, (Number(row[3] ?? 0) / maximum) * 100)}%`,
+                      }}
+                    >
+                      <span>{row[0]}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div className="panel">
               <div className="panel-head">
                 <div>
-                  <h2>Menu terlaris</h2>
-                  <p>Berdasarkan jumlah item</p>
+                  <h2>Transaksi terbaru</h2>
+                  <p>Berdasarkan periode terpilih</p>
                 </div>
               </div>
-              {[
-                ["Paket Ayam Nasi", 46, 100],
-                ["Ayam Crispy", 32, 70],
-                ["Rice Bowl", 24, 52],
-                ["Paket Berdua", 18, 39],
-              ].map((r, i) => (
+              {(liveReport?.rows ?? []).slice(0, 4).map((r, i) => (
                 <div className="rank-row" key={r[0]}>
                   <b>{i + 1}</b>
                   <div>
                     <span>
                       {r[0]}
-                      <strong>{r[1]} item</strong>
+                      <strong>{r[1]} · {money(Number(r[3] ?? 0))}</strong>
                     </span>
                     <i>
-                      <em style={{ width: `${r[2]}%` }} />
+                      <em
+                        style={{
+                          width: `${Math.max(5, 100 - i * 20)}%`,
+                        }}
+                      />
                     </i>
                   </div>
                 </div>
@@ -5048,6 +4916,11 @@ function ActivityLog() {
                     </td>
                   </tr>
                 ))}
+                {!recentSales.length && (
+                  <tr>
+                    <td colSpan={7}>Belum ada transaksi.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </section>
@@ -5164,6 +5037,7 @@ function SettingsPage({
   );
   const [negativeStockDefault, setNegativeStockDefault] = useState(false);
   const [stockAlertDefault, setStockAlertDefault] = useState(true);
+  const [cashoutPinThreshold, setCashoutPinThreshold] = useState(0);
   const [outletPhone, setOutletPhone] = useState("");
   const [outletAddress, setOutletAddress] = useState("");
   const [opensAt, setOpensAt] = useState("08:00");
@@ -5181,7 +5055,7 @@ function SettingsPage({
   ];
   const [tab, setTab] = useState("Profil bisnis");
   const [operatorEmail, setOperatorEmail] = useState<string | null>(null);
-  const [loginEmail, setLoginEmail] = useState("ridhoshaumil@gmail.com");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [ownerPin, setOwnerPinValue] = useState("");
@@ -5208,6 +5082,7 @@ function SettingsPage({
         setBatchUsageMethod(settings.batchUsageMethod);
         setNegativeStockDefault(settings.negativeStockDefault);
         setStockAlertDefault(settings.stockAlertDefault);
+        setCashoutPinThreshold(settings.cashoutPinThreshold);
         setOutletPhone(settings.phone);
         setOutletAddress(settings.address);
         setOpensAt(settings.opensAt);
@@ -5372,7 +5247,6 @@ function SettingsPage({
               <div className="setting-field">
                 <label>Printer struk</label>
                 <select>
-                  <option>Printer kasir utama</option>
                   <option>Belum terhubung</option>
                 </select>
               </div>
@@ -5380,17 +5254,12 @@ function SettingsPage({
                 <span>PRATINJAU STRUK</span>
                 <div>
                   <b>{business.name.toUpperCase()}</b>
-                  <small>{business.outlet} · Pesanan #A-087</small>
+                  <small>{business.outlet} · Pratinjau tanpa transaksi</small>
                   <hr />
-                  <p>
-                    1x Paket Ayam Nasi <em>Rp19.000</em>
-                  </p>
-                  <p>
-                    1x Ayam Crispy <em>Rp13.000</em>
-                  </p>
+                  <p>Belum ada item</p>
                   <hr />
                   <strong>
-                    TOTAL <em>Rp32.000</em>
+                    TOTAL <em>{money(0)}</em>
                   </strong>
                   <small>Terima kasih!</small>
                 </div>
@@ -5611,7 +5480,7 @@ function SettingsPage({
               {[
                 "Refund dan pembatalan transaksi",
                 "Selisih close kasir di atas Rp10.000",
-                "Cash-out di atas Rp200.000",
+                `Cash-out mulai ${money(cashoutPinThreshold)}`,
                 "Koreksi stok dan hasil produksi",
                 "Produksi saat minyak melewati batas",
               ].map((item) => (
@@ -5805,6 +5674,7 @@ function SettingsPage({
                 batchUsageMethod,
                 negativeStockDefault,
                 stockAlertDefault,
+                cashoutPinThreshold,
                 phone: outletPhone,
                 address: outletAddress,
                 opensAt,

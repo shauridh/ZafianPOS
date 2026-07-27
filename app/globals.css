@@ -2915,7 +2915,6 @@ td {
   padding: 0 10px;
   background: #fff;
 }
-.dummy-note,
 .owner-pin-card {
   display: flex;
   align-items: center;
@@ -2925,25 +2924,19 @@ td {
   border-radius: 10px;
   margin-top: 16px;
 }
-.dummy-note svg,
 .owner-pin-card > svg {
   color: var(--red);
 }
-.dummy-note div,
 .owner-pin-card div {
   flex: 1;
 }
-.dummy-note strong,
-.dummy-note span,
 .owner-pin-card strong,
 .owner-pin-card span {
   display: block;
 }
-.dummy-note strong,
 .owner-pin-card strong {
   font-size: 11px;
 }
-.dummy-note span,
 .owner-pin-card span {
   font-size: 9px;
   color: var(--muted);

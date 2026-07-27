@@ -107,6 +107,7 @@ export type OperationalSettings = {
   batchUsageMethod: "fifo" | "manual";
   negativeStockDefault: boolean;
   stockAlertDefault: boolean;
+  cashoutPinThreshold: number;
   phone: string;
   address: string;
   opensAt: string;
@@ -120,6 +121,7 @@ export async function loadOperationalSettings(): Promise<OperationalSettings> {
     batchUsageMethod: "fifo",
     negativeStockDefault: false,
     stockAlertDefault: true,
+    cashoutPinThreshold: 50000,
     phone: "",
     address: "",
     opensAt: "08:00",
@@ -131,7 +133,7 @@ export async function loadOperationalSettings(): Promise<OperationalSettings> {
     supabase
       .from("business_settings")
       .select(
-        "auto_print_receipt,print_kitchen_ticket,receipt_width,batch_usage_method,negative_stock_default,stock_alert_default",
+        "auto_print_receipt,print_kitchen_ticket,receipt_width,batch_usage_method,negative_stock_default,stock_alert_default,cashout_pin_threshold",
       )
       .eq("outlet_id", outletId)
       .maybeSingle(),
@@ -149,6 +151,7 @@ export async function loadOperationalSettings(): Promise<OperationalSettings> {
     batchUsageMethod: settings.batch_usage_method,
     negativeStockDefault: settings.negative_stock_default,
     stockAlertDefault: settings.stock_alert_default,
+    cashoutPinThreshold: Number(settings.cashout_pin_threshold),
     phone: outlet?.phone ?? "",
     address: outlet?.address ?? "",
     opensAt: String(outlet?.opens_at ?? "08:00").slice(0, 5),
@@ -169,6 +172,7 @@ export async function saveOperationalSettings(settings: OperationalSettings) {
         batch_usage_method: settings.batchUsageMethod,
         negative_stock_default: settings.negativeStockDefault,
         stock_alert_default: settings.stockAlertDefault,
+        cashout_pin_threshold: settings.cashoutPinThreshold,
       })
       .eq("outlet_id", outletId),
     supabase
@@ -1200,6 +1204,32 @@ export async function recordCashMovement(
           : "Transaksi kas gagal disimpan.",
     );
   return getActiveShift();
+}
+
+export async function listCashMovements() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const { data, error } = await supabase
+    .from("cash_movements")
+    .select("id,direction,amount,category,note,created_at")
+    .eq("outlet_id", outletId)
+    .gte("created_at", start.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return [];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    direction: row.direction as "in" | "out",
+    amount: Number(row.amount),
+    category: row.category,
+    note: row.note ?? "",
+    time: new Date(row.created_at).toLocaleTimeString("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
 }
 
 export async function closeCashShift(closingCash: number, ownerPin?: string) {
