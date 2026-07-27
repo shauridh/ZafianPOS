@@ -940,18 +940,40 @@ export async function saveProductionMenu(
       .eq("outlet_id", outletId);
     if (error) throw error;
   } else {
-    const { data, error } = await supabase
+    const { data: existing, error: lookupError } = await supabase
       .from("production_recipes")
-      .insert({
-        outlet_id: outletId,
-        name: value.name,
-        batch_unit: value.inputUnit,
-        default_batch_size: 1,
-      })
       .select("id")
-      .single();
-    if (error) throw error;
-    recipeId = data.id as string;
+      .eq("outlet_id", outletId)
+      .ilike("name", value.name.trim())
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing?.id) {
+      const { error } = await supabase
+        .from("production_recipes")
+        .update({
+          name: value.name.trim(),
+          batch_unit: value.inputUnit,
+          default_batch_size: 1,
+          is_active: true,
+        })
+        .eq("id", existing.id)
+        .eq("outlet_id", outletId);
+      if (error) throw error;
+      recipeId = existing.id as string;
+    } else {
+      const { data, error } = await supabase
+        .from("production_recipes")
+        .insert({
+          outlet_id: outletId,
+          name: value.name.trim(),
+          batch_unit: value.inputUnit,
+          default_batch_size: 1,
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      recipeId = data.id as string;
+    }
   }
   if (!id) {
     await saveProductionInput(recipeId!, {
@@ -988,12 +1010,12 @@ export async function saveProductionInput(
   }
   const { data, error } = await supabase
     .from("production_recipe_lines")
-    .insert({
+    .upsert({
       recipe_id: recipeId,
       inventory_item_id: itemId,
       direction: "input",
       quantity: value.qty,
-    })
+    }, { onConflict: "recipe_id,inventory_item_id,direction" })
     .select("id")
     .single();
   if (error) throw error;

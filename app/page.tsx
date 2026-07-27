@@ -3481,9 +3481,15 @@ function ProductionMenuModal({
   mode: "add" | "edit";
   initial?: { name: string; inputName: string; inputUnit: string };
   close: () => void;
-  save: (value: { name: string; inputName: string; inputUnit: string }) => void;
+  save: (value: {
+    name: string;
+    inputName: string;
+    inputUnit: string;
+  }) => Promise<void> | void;
   inventory: Awaited<ReturnType<typeof listInventory>>;
 }) {
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   return (
     <Modal close={close}>
       <div className="modal-head">
@@ -3502,17 +3508,29 @@ function ProductionMenuModal({
       </div>
       <form
         className="crud-form"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          save({
-            name: String(form.get("name")),
-            inputName:
-              mode === "edit"
-                ? (initial?.inputName ?? "Bahan baku")
-                : String(form.get("inputName")),
-            inputUnit: String(form.get("inputUnit")),
-          });
+          setSaving(true);
+          setSaveError("");
+          try {
+            await save({
+              name: String(form.get("name")),
+              inputName:
+                mode === "edit"
+                  ? (initial?.inputName ?? "Bahan baku")
+                  : String(form.get("inputName")),
+              inputUnit: String(form.get("inputUnit")),
+            });
+          } catch (error) {
+            setSaveError(
+              error instanceof Error
+                ? error.message
+                : "Menu produksi gagal disimpan.",
+            );
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <label>
@@ -3559,7 +3577,10 @@ function ProductionMenuModal({
             </select>
           </label>
         </div>
-        <button type="submit">Simpan menu produksi</button>
+        {saveError && <p className="form-error">{saveError}</p>}
+        <button type="submit" disabled={saving}>
+          {saving ? "Menyimpan..." : "Simpan menu produksi"}
+        </button>
       </form>
     </Modal>
   );
