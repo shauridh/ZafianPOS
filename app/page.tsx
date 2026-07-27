@@ -260,6 +260,19 @@ function Sidebar({
   collapsed: boolean;
   setCollapsed: (value: boolean) => void;
 }) {
+  const [activeShift, setActiveShift] = useState<
+    Awaited<ReturnType<typeof getActiveShift>>
+  >(null);
+  const [operatorName, setOperatorName] = useState("Operator");
+  useEffect(() => {
+    getActiveShift().then(setActiveShift).catch(() => undefined);
+    getOperatorSession()
+      .then((session) => {
+        const email = session?.user.email;
+        if (email) setOperatorName(email.split("@")[0]);
+      })
+      .catch(() => undefined);
+  }, [view]);
   return (
     <aside
       className={`sidebar ${collapsed ? "collapsed" : ""}`}
@@ -282,7 +295,6 @@ function Sidebar({
             onClick={() => setView(item.id)}
           >
             <item.icon size={19} /> {item.label}
-            {item.id === "kasir" && <i>3</i>}
           </button>
         ))}
         <span className="nav-caption lower">LAINNYA</span>
@@ -298,19 +310,24 @@ function Sidebar({
       </nav>
       <div className="shift-card">
         <div>
-          <span className="live-dot" /> SHIFT AKTIF
+          {activeShift && <span className="live-dot" />}
+          {activeShift ? " SHIFT AKTIF" : " BELUM ADA SHIFT"}
         </div>
-        <strong>08:02 — sekarang</strong>
-        <span>Drawer: Rp 726.000</span>
+        <strong>
+          {activeShift
+            ? `${new Date(activeShift.openedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} — sekarang`
+            : "Buka kasir untuk mulai"}
+        </strong>
+        <span>Drawer: {money(activeShift?.expectedCash ?? 0)}</span>
         <button onClick={() => setView("drawer")}>
           Lihat shift <ArrowRight size={15} />
         </button>
       </div>
       <div className="operator">
-        <div className="avatar">DN</div>
+        <div className="avatar">{operatorName.slice(0, 2).toUpperCase()}</div>
         <div>
-          <strong>Dina</strong>
-          <span>Operator pagi</span>
+          <strong>{operatorName}</strong>
+          <span>Operator</span>
         </div>
         <ChevronDown size={17} />
       </div>
@@ -318,6 +335,7 @@ function Sidebar({
   );
 }
 function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
+  const today = new Date();
   return (
     <header className="topbar">
       <div>
@@ -339,8 +357,16 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
         <div className="date-chip">
           <Clock3 size={17} />
           <div>
-            <small>Kamis</small>
-            <strong>23 Juli 2026</strong>
+            <small>
+              {today.toLocaleDateString("id-ID", { weekday: "long" })}
+            </small>
+            <strong>
+              {today.toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </strong>
           </div>
         </div>
       </div>
@@ -348,15 +374,88 @@ function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-function Dashboard({ setView }: { setView: (view: View) => void }) {
+function Dashboard({
+  setView,
+  business,
+}: {
+  setView: (view: View) => void;
+  business: BusinessProfile;
+}) {
   const [period, setPeriod] = useState("Hari ini");
   const [customPeriod, setCustomPeriod] = useState(false);
   const [chartPeriod, setChartPeriod] = useState("Hari ini");
+  const [dashboardData, setDashboardData] = useState<{
+    sales: Awaited<ReturnType<typeof loadReportDataset>>;
+    products: Awaited<ReturnType<typeof loadReportDataset>>;
+    production: Awaited<ReturnType<typeof loadReportDataset>>;
+    inventory: Awaited<ReturnType<typeof loadReportDataset>>;
+    display: Awaited<ReturnType<typeof listDisplayStock>>;
+    oil: Awaited<ReturnType<typeof getActiveOilCycle>>;
+  }>({
+    sales: null,
+    products: null,
+    production: null,
+    inventory: null,
+    display: [],
+    oil: null,
+  });
+  useEffect(() => {
+    Promise.all([
+      loadReportDataset("Penjualan", period),
+      loadReportDataset("Produk", period),
+      loadReportDataset("Produksi", period),
+      loadReportDataset("Persediaan", period),
+      listDisplayStock(),
+      getActiveOilCycle(),
+    ])
+      .then(([sales, products, production, inventory, display, oil]) =>
+        setDashboardData({
+          sales,
+          products,
+          production,
+          inventory,
+          display,
+          oil,
+        }),
+      )
+      .catch(() => undefined);
+  }, [period]);
+  const salesTotal = Number(dashboardData.sales?.kpis[0]?.[1] ?? 0);
+  const transactionCount = Number(dashboardData.sales?.kpis[1]?.[1] ?? 0);
+  const averageSale = Number(dashboardData.sales?.kpis[2]?.[1] ?? 0);
+  const soldItems = Number(dashboardData.products?.kpis[0]?.[1] ?? 0);
+  const hourlySales = dashboardData.sales?.rows ?? [];
+  const maximumHourlySale = Math.max(
+    1,
+    ...hourlySales.map((row) => Number(row[3] ?? 0)),
+  );
+  const lowInventory =
+    dashboardData.inventory?.rows.filter((row) => row[4] === "Menipis") ?? [];
+  const oilPacks = dashboardData.oil?.packsProcessed ?? 0;
+  const oilAgeDays = dashboardData.oil
+    ? Math.floor(
+        (Date.now() - new Date(dashboardData.oil.startedAt).getTime()) /
+          86400000,
+      )
+    : 0;
+  const oilNeedsAttention =
+    dashboardData.oil !== null && (oilPacks >= 200 || oilAgeDays >= 14);
+  const alertsCount = lowInventory.length + (oilNeedsAttention ? 1 : 0);
+  const paymentTotals = hourlySales.reduce(
+    (totals, row) => {
+      const method = String(row[2] ?? "").toLowerCase();
+      const amount = Number(row[3] ?? 0);
+      if (method === "cash") totals.cash += amount;
+      else totals.nonCash += amount;
+      return totals;
+    },
+    { cash: 0, nonCash: 0 },
+  );
   return (
     <>
       <Topbar
-        title="Selamat pagi, Dina"
-        subtitle="Berikut kondisi outlet Sabana hari ini."
+        title="Ringkasan outlet"
+        subtitle={`Berikut kondisi ${business.name} pada periode ${period.toLowerCase()}.`}
       />
       <main className="content dashboard-content">
         <section className="period-bar">
@@ -383,28 +482,26 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
         <section className="hero-strip">
           <div>
             <span>OMZET · {period.toUpperCase()}</span>
-            <strong>Rp 2.480.000</strong>
-            <p>
-              <b>↑ 12,4%</b> dibanding periode sebelumnya
-            </p>
+            <strong>{money(salesTotal)}</strong>
+            <p>{transactionCount ? "Data transaksi tersimpan" : "Belum ada transaksi"}</p>
           </div>
           <div className="hero-divider" />
           <div className="hero-mini">
             <ReceiptText />
             <span>
-              Transaksi<strong>86</strong>
+              Transaksi<strong>{transactionCount}</strong>
             </span>
           </div>
           <div className="hero-mini">
             <CircleDollarSign />
             <span>
-              Rata-rata<strong>Rp 28.837</strong>
+              Rata-rata<strong>{money(averageSale)}</strong>
             </span>
           </div>
           <div className="hero-mini">
             <ShoppingBag />
             <span>
-              Ayam terjual<strong>124 pcs</strong>
+              Item terjual<strong>{soldItems}</strong>
             </span>
           </div>
         </section>
@@ -452,41 +549,53 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
               <button onClick={() => setView("stok")}>Lihat detail</button>
             </div>
             <div className="display-stock">
-              {Object.entries(cutStock).map(([cut, stock]) => (
-                <div key={cut}>
+              {dashboardData.display.map((item) => (
+                <div key={item.id}>
                   <span className="chicken-symbol">♨</span>
-                  <p>{cut}</p>
-                  <strong>{stock}</strong>
-                  <small>potong</small>
-                  <i className={stock <= 4 ? "low" : ""}>
-                    {stock <= 4 ? "Menipis" : "Tersedia"}
+                  <p>{item.itemName}</p>
+                  <strong>{item.quantity}</strong>
+                  <small>siap jual</small>
+                  <i className={item.quantity <= 4 ? "low" : ""}>
+                    {item.quantity <= 4 ? "Menipis" : "Tersedia"}
                   </i>
                 </div>
               ))}
+              {!dashboardData.display.length && (
+                <div className="empty-production">
+                  <PackageOpen />
+                  <strong>Etalase masih kosong</strong>
+                </div>
+              )}
             </div>
           </div>
           <div className="panel fryer-panel">
             <div className="panel-head">
               <div>
                 <h2>Kondisi deep fryer</h2>
-                <p>Belum ada siklus minyak aktif</p>
+                <p>
+                  {dashboardData.oil
+                    ? `Dimulai ${new Date(dashboardData.oil.startedAt).toLocaleDateString("id-ID")}`
+                    : "Belum ada siklus minyak aktif"}
+                </p>
               </div>
-              <span className="status neutral">Belum dimulai</span>
+              <span className={`status ${dashboardData.oil ? "success" : "neutral"}`}>
+                {dashboardData.oil ? "Aktif" : "Belum dimulai"}
+              </span>
             </div>
             <div className="fryer-main">
               <div className="gauge empty">
-                <span>0</span>
+                <span>{oilPacks}</span>
                 <small>/200 pak</small>
               </div>
               <div className="fryer-stats">
                 <div>
                   <span>Umur minyak</span>
-                  <strong>0 hari</strong>
-                  <small>Diisi saat mulai</small>
+                  <strong>{oilAgeDays} hari</strong>
+                  <small>{dashboardData.oil ? "Sejak penggantian" : "Diisi saat mulai"}</small>
                 </div>
                 <div>
                   <span>Top-up</span>
-                  <strong>0 / 10 pak</strong>
+                  <strong>{oilPacks % 10} / 10 pak</strong>
                   <small>Belum dihitung</small>
                 </div>
               </div>
@@ -519,54 +628,52 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
               </select>
             </div>
             <div className="chart">
-              {[25, 38, 28, 55, 47, 75, 63, 89, 58, 70].map((v, i) => (
+              {hourlySales.map((row, i) => (
                 <div
-                  key={i}
-                  className={i === 7 ? "hot" : ""}
-                  style={{ height: `${v}%` }}
+                  key={`${row[0]}-${i}`}
+                  style={{
+                    height: `${Math.max(4, (Number(row[3]) / maximumHourlySale) * 100)}%`,
+                  }}
                 >
-                  <span>{i + 8}:00</span>
+                  <span>{row[0]}</span>
                 </div>
               ))}
+              {!hourlySales.length && <p>Belum ada data penjualan.</p>}
             </div>
           </div>
           <div className="panel alerts">
             <div className="panel-head">
               <div>
                 <h2>Perlu perhatian</h2>
-                <p>3 hal membutuhkan tindakan</p>
+                <p>{alertsCount} hal membutuhkan tindakan</p>
               </div>
             </div>
-            <div className="alert-row">
-              <span className="alert-icon amber">
-                <Flame />
-              </span>
-              <div>
-                <strong>Minyak perlu diperiksa</strong>
-                <small>Sudah digunakan 164 pak · 15 hari</small>
+            {oilNeedsAttention && (
+              <div className="alert-row">
+                <span className="alert-icon amber"><Flame /></span>
+                <div>
+                  <strong>Minyak perlu diperiksa</strong>
+                  <small>{oilPacks} pak · {oilAgeDays} hari</small>
+                </div>
+                <ArrowRight />
               </div>
-              <ArrowRight />
-            </div>
-            <div className="alert-row">
-              <span className="alert-icon red">
-                <PackageOpen />
-              </span>
-              <div>
-                <strong>Stok sayap menipis</strong>
-                <small>Tersisa 4 potong di etalase</small>
+            )}
+            {lowInventory.slice(0, 3).map((item) => (
+              <div className="alert-row" key={item[0]}>
+                <span className="alert-icon red"><PackageOpen /></span>
+                <div>
+                  <strong>{item[0]} menipis</strong>
+                  <small>Stok {item[2]} · minimum {item[3]}</small>
+                </div>
+                <ArrowRight />
               </div>
-              <ArrowRight />
-            </div>
-            <div className="alert-row">
-              <span className="alert-icon blue">
-                <Boxes />
-              </span>
-              <div>
-                <strong>Tepung hampir habis</strong>
-                <small>Tersisa 1,3 pak · cukup untuk 3 pak ayam</small>
+            ))}
+            {!alertsCount && (
+              <div className="empty-production">
+                <Check />
+                <strong>Belum ada perhatian operasional</strong>
               </div>
-              <ArrowRight />
-            </div>
+            )}
           </div>
         </section>
         <section className="analytics-grid">
@@ -581,26 +688,17 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
             <div className="donut-wrap">
               <div className="donut">
                 <span>
-                  124<small>item</small>
+                  {soldItems}<small>item</small>
                 </span>
               </div>
               <div className="legend">
-                <p>
-                  <i className="l-red" />
-                  Paket ayam <b>46%</b>
-                </p>
-                <p>
-                  <i className="l-amber" />
-                  Ayam satuan <b>29%</b>
-                </p>
-                <p>
-                  <i className="l-green" />
-                  Rice bowl <b>16%</b>
-                </p>
-                <p>
-                  <i className="l-gray" />
-                  Lainnya <b>9%</b>
-                </p>
+                {(dashboardData.products?.rows ?? []).slice(0, 4).map((row) => (
+                  <p key={row[0]}>
+                    <i className="l-red" />
+                    {row[0]} <b>{row[1]} item</b>
+                  </p>
+                ))}
+                {!dashboardData.products?.rows.length && <p>Belum ada penjualan.</p>}
               </div>
             </div>
           </div>
@@ -614,18 +712,27 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
             <div className="horizontal-bars">
               <div>
                 <span>
-                  Tunai <b>Rp826rb</b>
+                  Tunai <b>{money(paymentTotals.cash)}</b>
                 </span>
                 <i>
-                  <em style={{ width: "34%" }} />
+                  <em
+                    style={{
+                      width: `${salesTotal ? (paymentTotals.cash / salesTotal) * 100 : 0}%`,
+                    }}
+                  />
                 </i>
               </div>
               <div>
                 <span>
-                  QRIS <b>Rp1,65jt</b>
+                  Non-tunai <b>{money(paymentTotals.nonCash)}</b>
                 </span>
                 <i>
-                  <em className="qris-bar" style={{ width: "66%" }} />
+                  <em
+                    className="qris-bar"
+                    style={{
+                      width: `${salesTotal ? (paymentTotals.nonCash / salesTotal) * 100 : 0}%`,
+                    }}
+                  />
                 </i>
               </div>
             </div>
@@ -638,12 +745,20 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
               </div>
             </div>
             <div className="efficiency">
-              <strong>98,7%</strong>
-              <span>178 dari 180 potong sesuai standar</span>
+              <strong>{dashboardData.production?.kpis[0]?.[1] ?? "0"} batch</strong>
+              <span>
+                {dashboardData.production?.rows.length
+                  ? "Produksi tersimpan pada periode ini"
+                  : "Belum ada produksi"}
+              </span>
               <div>
-                <i style={{ width: "98.7%" }} />
+                <i
+                  style={{
+                    width: dashboardData.production?.rows.length ? "100%" : "0%",
+                  }}
+                />
               </div>
-              <small>Susut produksi: 2 potong</small>
+              <small>Efisiensi dihitung setelah data produksi tersedia.</small>
             </div>
           </div>
         </section>
@@ -4533,7 +4648,16 @@ function Reports() {
       .then(setLiveReport)
       .catch(() => setLiveReport(null));
   }, [tab, period]);
-  const data = liveReport ?? reportData[tab];
+  const data =
+    liveReport ?? {
+      kpis: reportData[tab].kpis.map((kpi) => [
+        kpi[0],
+        "0",
+        "Belum ada data",
+      ]),
+      columns: reportData[tab].columns,
+      rows: [],
+    };
   const downloadCsv = () => {
     const csv = [data.columns, ...data.rows]
       .map((row) =>
@@ -4597,7 +4721,7 @@ function Reports() {
             </div>
           ))}
         </section>
-        {tab === "Penjualan" && (
+        {tab === "Penjualan" && data.rows.length > 0 && (
           <section className="two-col report-charts">
             <div className="panel">
               <div className="panel-head">
@@ -4673,7 +4797,7 @@ function Reports() {
           <div className="panel-head">
             <div>
               <h2>Detail {tab.toLowerCase()}</h2>
-              <p>Data dummy · {period}</p>
+              <p>Data Supabase · {period}</p>
             </div>
             <button onClick={downloadCsv}>Unduh CSV</button>
           </div>
@@ -4693,6 +4817,11 @@ function Reports() {
                   ))}
                 </tr>
               ))}
+              {!data.rows.length && (
+                <tr>
+                  <td colSpan={data.columns.length}>Belum ada data pada periode ini.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </section>
@@ -4743,33 +4872,7 @@ function Reports() {
 }
 
 function ActivityLog() {
-  const fallbackEvents = [
-    [
-      "14:24",
-      "Dina",
-      "Menyelesaikan transaksi #A-086",
-      "Tunai · Rp42.000",
-      "Kasir",
-    ],
-    [
-      "13:42",
-      "Dina",
-      "Memulai produksi batch #B-025",
-      "2 pak ayam · 18 potong",
-      "Produksi",
-    ],
-    ["12:46", "Dina", "Mencatat cash-out", "Belanja outlet · Rp50.000", "Kas"],
-    [
-      "11:18",
-      "Raka",
-      "Mengoreksi hasil produksi #B-024",
-      "Disetujui PIN owner",
-      "Approval owner",
-    ],
-    ["10:05", "Dina", "Konversi stok", "2 sayap → 2 topping rice bowl", "Stok"],
-    ["09:15", "Dina", "Mencatat cash-in", "Uang kembalian · Rp100.000", "Kas"],
-  ];
-  const [events, setEvents] = useState<string[][]>(fallbackEvents);
+  const [events, setEvents] = useState<string[][]>([]);
   const [filter, setFilter] = useState("Semua");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<string[] | null>(null);
@@ -4795,16 +4898,15 @@ function ActivityLog() {
   useEffect(() => {
     loadActivityLogs()
       .then((logs) => {
-        if (logs.length)
-          setEvents(
-            logs.map((log) => [
-              log.time,
-              log.operator,
-              log.action,
-              log.detail,
-              log.category,
-            ]),
-          );
+        setEvents(
+          logs.map((log) => [
+            log.time,
+            log.operator,
+            log.action,
+            log.detail,
+            log.category,
+          ]),
+        );
       })
       .catch(() => undefined);
   }, []);
@@ -5898,7 +6000,9 @@ export default function Home() {
         setCollapsed={setCollapsed}
       />
       <section className="workspace">
-        {view === "dashboard" && <Dashboard setView={setView} />}
+        {view === "dashboard" && (
+          <Dashboard setView={setView} business={business} />
+        )}
         {view === "kasir" && <POS />}
         {view === "menu" && <MenuManagement />}
         {view === "produksi" && <Production />}
