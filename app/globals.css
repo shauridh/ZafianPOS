@@ -3613,7 +3613,7 @@ td {
 }
 
 .sidebar-logout {
-  width: 32px;
+  min-width: 70px;
   height: 32px;
   margin-left: auto;
   display: grid;
@@ -3623,6 +3623,10 @@ td {
   background: rgba(255, 255, 255, 0.1);
   color: inherit;
   cursor: pointer;
+  gap: 6px;
+  padding: 0 9px;
+  font-size: 10px;
+  font-weight: 800;
 }
 .auth-loading,
 .auth-screen {

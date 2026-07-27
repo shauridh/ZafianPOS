@@ -267,6 +267,7 @@ function Sidebar({
           aria-label="Keluar dari aplikasi"
         >
           <LogOut size={17} />
+          <span>Keluar</span>
         </button>
       </div>
     </aside>
@@ -3052,6 +3053,9 @@ function Production() {
           mode={menuModal.mode}
           initial={productionMenus.find((item) => item.id === menuModal.id)}
           close={() => setMenuModal(null)}
+          inventory={inventoryOptions.filter(
+            (item) => item.kind !== "production_output",
+          )}
           save={async (value) => {
             if (menuModal.mode === "edit") {
               await saveProductionMenu(value, menuModal.id);
@@ -3442,11 +3446,13 @@ function ProductionMenuModal({
   initial,
   close,
   save,
+  inventory,
 }: {
   mode: "add" | "edit";
   initial?: { name: string; inputName: string; inputUnit: string };
   close: () => void;
   save: (value: { name: string; inputName: string; inputUnit: string }) => void;
+  inventory: Awaited<ReturnType<typeof listInventory>>;
 }) {
   return (
     <Modal close={close}>
@@ -3492,12 +3498,23 @@ function ProductionMenuModal({
           {mode === "add" && (
             <label>
               Bahan pertama
-              <input
+              <select
                 name="inputName"
                 required
                 defaultValue={initial?.inputName}
-                placeholder="Contoh: Bakso mentah"
-              />
+              >
+                <option value="">Pilih dari Persediaan</option>
+                {inventory.map((item) => (
+                  <option key={item.id} value={item.name}>
+                    {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+                  </option>
+                ))}
+              </select>
+              {!inventory.length && (
+                <small>
+                  Belum ada bahan. Tambahkan bahan baku melalui Persediaan.
+                </small>
+              )}
             </label>
           )}
           <label>
@@ -6066,7 +6083,7 @@ export default function Home() {
       .then(setBusiness)
       .catch(() => undefined);
     getOperatorSession()
-      .then((session) => setOperatorEmail(session?.user.email ?? null))
+      .then(() => setOperatorEmail(null))
       .finally(() => setSessionChecked(true));
   }, []);
   if (!sessionChecked) {
