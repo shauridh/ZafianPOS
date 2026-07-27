@@ -2497,19 +2497,34 @@ function Production() {
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchError, setBatchError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [showInputManager, setShowInputManager] = useState(false);
   const [inventoryOptions, setInventoryOptions] = useState<
     Awaited<ReturnType<typeof listInventory>>
   >([]);
+  const reloadProduction = async (preferredMenuId?: string) => {
+    const [data, inventory] = await Promise.all([
+      listProductionMenus(),
+      listInventory(),
+    ]);
+    setProductionMenus(data.menus);
+    setInputs(data.inputs);
+    setOutputs(data.outputs);
+    setInventoryOptions(inventory);
+    setActiveMenu((current) => {
+      const preferred = preferredMenuId ?? current;
+      return data.menus.some((item) => item.id === preferred)
+        ? preferred
+        : (data.menus[0]?.id ?? "");
+    });
+  };
   useEffect(() => {
-    Promise.all([listProductionMenus(), listInventory()])
-      .then(([data, inventory]) => {
-        setProductionMenus(data.menus);
-        setInputs(data.inputs);
-        setOutputs(data.outputs);
-        setInventoryOptions(inventory);
-        setActiveMenu(data.menus[0]?.id ?? "");
-      })
-      .catch(() => undefined);
+    reloadProduction().catch((error) =>
+      setBatchError(
+        error instanceof Error
+          ? error.message
+          : "Data produksi gagal dimuat.",
+      ),
+    );
   }, []);
   const refreshDisplayOverview = () =>
     listDisplayStock()
@@ -2607,7 +2622,10 @@ function Production() {
         ...current,
       ]);
       setDone({ batch: batchNumber, total: completed.totalOutput });
-      await refreshDisplayOverview();
+      await Promise.all([
+        refreshDisplayOverview(),
+        reloadProduction(activeMenu),
+      ]);
     } catch (error) {
       setBatchError(
         error instanceof Error ? error.message : "Batch gagal disimpan.",
@@ -2656,26 +2674,16 @@ function Production() {
                   >
                     Edit menu
                   </button>
-                  <button onClick={() => setInputModal({ mode: "add" })}>
+                  <button onClick={() => setShowInputManager(true)}>
                     Atur bahan menu
                   </button>
                 </>
               )}
-              {productionMenus.length > 1 && (
+              {productionMenus.length > 0 && (
                 <button
                   onClick={async () => {
                     await deleteProductionMenu(menu.id);
-                    const remaining = productionMenus.filter(
-                      (item) => item.id !== menu.id,
-                    );
-                    setProductionMenus(remaining);
-                    setOutputs((items) =>
-                      items.filter((item) => item.menuId !== menu.id),
-                    );
-                    setInputs((items) =>
-                      items.filter((item) => item.menuId !== menu.id),
-                    );
-                    setActiveMenu(remaining[0].id);
+                    await reloadProduction();
                   }}
                 >
                   Hapus
@@ -2987,18 +2995,12 @@ function Production() {
             (item) => item.kind !== "production_output",
           )}
           save={async (value) => {
-            const id = await saveProductionInput(
+            await saveProductionInput(
               activeMenu,
               value,
               inputModal.mode === "edit" ? inputModal.id : undefined,
             );
-            setInputs((current) =>
-              inputModal.mode === "edit"
-                ? current.map((item) =>
-                    item.id === inputModal.id ? { ...item, ...value } : item,
-                  )
-                : [...current, { ...value, id, menuId: activeMenu, stock: 0 }],
-            );
+            await reloadProduction(activeMenu);
             setInputModal(null);
           }}
         />
@@ -3012,18 +3014,12 @@ function Production() {
             () => true,
           )}
           save={async (value) => {
-            const id = await saveProductionOutput(
+            await saveProductionOutput(
               activeMenu,
               value,
               outputModal.mode === "edit" ? outputModal.id : undefined,
             );
-            setOutputs((current) =>
-              outputModal.mode === "edit"
-                ? current.map((item) =>
-                    item.id === outputModal.id ? { ...item, ...value } : item,
-                  )
-                : [...current, { ...value, id, menuId: activeMenu, stock: 0 }],
-            );
+            await reloadProduction(activeMenu);
             setOutputModal(null);
           }}
         />
@@ -3039,19 +3035,74 @@ function Production() {
           save={async (value) => {
             if (menuModal.mode === "edit") {
               await saveProductionMenu(value, menuModal.id);
-              setProductionMenus((current) =>
-                current.map((item) =>
-                  item.id === menuModal.id ? { ...item, ...value } : item,
-                ),
-              );
+              await reloadProduction(menuModal.id);
             } else {
               const id = await saveProductionMenu(value);
-              setProductionMenus((current) => [...current, { ...value, id }]);
-              setActiveMenu(id);
+              await reloadProduction(id);
             }
             setMenuModal(null);
           }}
         />
+      )}
+      {showInputManager && (
+        <Modal close={() => setShowInputManager(false)}>
+          <div className="modal-head">
+            <div>
+              <span className="modal-icon">
+                <Boxes />
+              </span>
+              <div>
+                <h2>Bahan menu {menu.name}</h2>
+                <p>Daftar bahan ini otomatis dipakai setiap batch produksi.</p>
+              </div>
+            </div>
+            <button onClick={() => setShowInputManager(false)}>
+              <X />
+            </button>
+          </div>
+          <div className="production-input-manager">
+            {activeInputs.map((item) => (
+              <div key={item.id}>
+                <span>
+                  <strong>{item.name}</strong>
+                  <small>
+                    {item.qty} {item.unit} per {menu.inputUnit}
+                  </small>
+                </span>
+                <div className="row-actions">
+                  <button
+                    onClick={() => {
+                      setShowInputManager(false);
+                      setInputModal({ mode: "edit", id: item.id });
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await deleteProductionInput(item.id);
+                      await reloadProduction(activeMenu);
+                    }}
+                  >
+                    Hapus
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!activeInputs.length && (
+              <p className="form-error">Belum ada bahan untuk menu ini.</p>
+            )}
+          </div>
+          <button
+            className="primary-wide"
+            onClick={() => {
+              setShowInputManager(false);
+              setInputModal({ mode: "add" });
+            }}
+          >
+            <Plus /> Tambah bahan menu
+          </button>
+        </Modal>
       )}
       {showHistory && (
         <Modal close={() => setShowHistory(false)}>

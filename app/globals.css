@@ -602,6 +602,24 @@ button {
   gap: 16px;
   font-size: 10px;
 }
+.production-input-manager {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.production-input-manager > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.production-input-manager span,
+.production-input-manager small {
+  display: block;
+}
 .status.success {
   background: #e9f7ef;
   color: #167148;
