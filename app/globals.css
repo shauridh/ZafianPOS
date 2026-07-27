@@ -588,6 +588,20 @@ button {
   background: #fff2d4;
   color: #9b6500;
 }
+.shift-reconciliation {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #faf8f6;
+}
+.shift-reconciliation > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 10px;
+}
 .status.success {
   background: #e9f7ef;
   color: #167148;
@@ -3596,4 +3610,94 @@ td {
 }
 .category-actions button:last-child {
   color: var(--red) !important;
+}
+
+.sidebar-logout {
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  cursor: pointer;
+}
+.auth-loading,
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f7f3ef;
+}
+.auth-loading {
+  color: #766e68;
+  font-size: 14px;
+}
+.auth-card {
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 24px;
+  padding: 32px;
+  border: 1px solid #eadfd6;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 55px rgba(58, 35, 24, 0.1);
+}
+.auth-card .brand {
+  color: #2f2824;
+}
+.auth-card h1 {
+  margin: 0 0 7px;
+  font-size: 25px;
+}
+.auth-card p {
+  margin: 0;
+  color: #766e68;
+  font-size: 13px;
+}
+.auth-card form {
+  display: grid;
+  gap: 14px;
+}
+.auth-card label {
+  display: grid;
+  gap: 7px;
+  color: #453c37;
+  font-size: 12px;
+  font-weight: 700;
+}
+.auth-card input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #ded3cb;
+  border-radius: 9px;
+  font: inherit;
+}
+.auth-card form > button {
+  height: 44px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--red);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+.auth-card button:disabled {
+  opacity: 0.55;
+}
+.auth-card .auth-error {
+  color: #b42318;
+  font-weight: 700;
+}
+.stock-conversion {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.status.warning {
+  background: #fff4d6;
+  color: #8a5a00;
 }

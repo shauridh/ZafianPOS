@@ -19,6 +19,7 @@ import {
   Grid2X2,
   History,
   LayoutDashboard,
+  LogOut,
   Minus,
   PackageOpen,
   Plus,
@@ -90,6 +91,7 @@ import {
   updateInventoryItem,
   updateOperatorPassword,
   uploadMenuImage,
+  verifyOwnerPin,
 } from "../lib/repository";
 
 type View =
@@ -180,12 +182,14 @@ function Sidebar({
   business,
   collapsed,
   setCollapsed,
+  onLogout,
 }: {
   view: View;
   setView: (view: View) => void;
   business: BusinessProfile;
   collapsed: boolean;
   setCollapsed: (value: boolean) => void;
+  onLogout: () => Promise<void>;
 }) {
   const [activeShift, setActiveShift] = useState<
     Awaited<ReturnType<typeof getActiveShift>>
@@ -256,7 +260,14 @@ function Sidebar({
           <strong>{operatorName}</strong>
           <span>Operator</span>
         </div>
-        <ChevronDown size={17} />
+        <button
+          className="sidebar-logout"
+          onClick={onLogout}
+          title="Keluar dari aplikasi"
+          aria-label="Keluar dari aplikasi"
+        >
+          <LogOut size={17} />
+        </button>
       </div>
     </aside>
   );
@@ -2485,12 +2496,16 @@ function Production() {
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchError, setBatchError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [inventoryOptions, setInventoryOptions] = useState<
+    Awaited<ReturnType<typeof listInventory>>
+  >([]);
   useEffect(() => {
-    listProductionMenus()
-      .then((data) => {
+    Promise.all([listProductionMenus(), listInventory()])
+      .then(([data, inventory]) => {
         setProductionMenus(data.menus);
         setInputs(data.inputs);
         setOutputs(data.outputs);
+        setInventoryOptions(inventory);
         setActiveMenu(data.menus[0]?.id ?? "");
       })
       .catch(() => undefined);
@@ -2987,6 +3002,9 @@ function Production() {
           mode={inputModal.mode}
           initial={inputs.find((item) => item.id === inputModal.id)}
           close={() => setInputModal(null)}
+          inventory={inventoryOptions.filter(
+            (item) => item.kind !== "production_output",
+          )}
           save={async (value) => {
             const id = await saveProductionInput(
               activeMenu,
@@ -3009,6 +3027,9 @@ function Production() {
           mode={outputModal.mode}
           initial={outputs.find((item) => item.id === outputModal.id)}
           close={() => setOutputModal(null)}
+          inventory={inventoryOptions.filter(
+            (item) => item.kind === "production_output",
+          )}
           save={async (value) => {
             const id = await saveProductionOutput(
               activeMenu,
@@ -3240,11 +3261,13 @@ function ProductionInputModal({
   initial,
   close,
   save,
+  inventory,
 }: {
   mode: "add" | "edit";
   initial?: { name: string; qty: number; unit: string };
   close: () => void;
   save: (value: { name: string; qty: number; unit: string }) => void;
+  inventory: Awaited<ReturnType<typeof listInventory>>;
 }) {
   return (
     <Modal close={close}>
@@ -3276,12 +3299,21 @@ function ProductionInputModal({
       >
         <label>
           Nama bahan
-          <input
+          <select
             name="name"
             required
             defaultValue={initial?.name}
-            placeholder="Contoh: Bakso mentah"
-          />
+          >
+            <option value="">Pilih bahan persediaan</option>
+            {inventory.map((item) => (
+              <option key={item.id} value={item.name}>
+                {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+              </option>
+            ))}
+          </select>
+          {!inventory.length && (
+            <small>Buat bahan baku di Persediaan terlebih dahulu.</small>
+          )}
         </label>
         <div>
           <label>
@@ -3319,11 +3351,13 @@ function ProductionOutputModal({
   initial,
   close,
   save,
+  inventory,
 }: {
   mode: "add" | "edit";
   initial?: { name: string; qty: number; unit: string };
   close: () => void;
   save: (value: { name: string; qty: number; unit: string }) => void;
+  inventory: Awaited<ReturnType<typeof listInventory>>;
 }) {
   return (
     <Modal close={close}>
@@ -3355,12 +3389,24 @@ function ProductionOutputModal({
       >
         <label>
           Nama hasil
-          <input
+          <select
             name="name"
             required
             defaultValue={initial?.name}
-            placeholder="Contoh: Kulit crispy"
-          />
+          >
+            <option value="">Pilih stok etalase</option>
+            {inventory.map((item) => (
+              <option key={item.id} value={item.name}>
+                {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+              </option>
+            ))}
+          </select>
+          {!inventory.length && (
+            <small>
+              Buat item berkelompok â€œHasil produksiâ€ di Persediaan terlebih
+              dahulu.
+            </small>
+          )}
         </label>
         <div>
           <label>
@@ -3502,13 +3548,23 @@ function Inventory() {
             : "Pendamping",
         `${item.stockQuantity} ${item.usageUnit}`,
         `Minimum ${item.minimumStock} ${item.usageUnit}`,
-        item.stockQuantity <= item.minimumStock ? "low" : "good",
+        item.stockQuantity <= 0
+          ? "empty"
+          : item.stockQuantity <= item.minimumStock
+            ? "low"
+            : "good",
         item.id,
         item.purchaseUnit,
         item.usageUnit,
         String(item.unitsPerPurchase),
         String(item.stockQuantity),
         String(item.purchasePrice ?? ""),
+        item.supplierName ?? "",
+        item.sku ?? "",
+        item.storageLocation ?? "",
+        String(item.shelfLifeDays ?? ""),
+        item.stockAlertEnabled ? "true" : "false",
+        item.allowNegativeStock ? "true" : "false",
       ]),
     );
     setMovements(recentMovements);
@@ -3609,13 +3665,31 @@ function Inventory() {
                   <td>{r[1]}</td>
                   <td>
                     <strong>{r[2]}</strong>
+                    {Number(r[8]) > 1 && (
+                      <small className="stock-conversion">
+                        â‰ˆ {(Number(r[9]) / Number(r[8])).toLocaleString("id-ID", {
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        {r[6]}
+                      </small>
+                    )}
                   </td>
                   <td>{r[3]}</td>
                   <td>
                     <span
-                      className={`status ${r[4] === "low" ? "danger" : "success"}`}
+                      className={`status ${
+                        r[4] === "empty"
+                          ? "danger"
+                          : r[4] === "low"
+                            ? "warning"
+                            : "success"
+                      }`}
                     >
-                      {r[4] === "low" ? "Menipis" : "Aman"}
+                      {r[4] === "empty"
+                        ? "Habis"
+                        : r[4] === "low"
+                          ? "Menipis"
+                          : "Aman"}
                     </span>
                   </td>
                   <td>
@@ -3638,8 +3712,16 @@ function Inventory() {
                       <button
                         title="Hapus"
                         onClick={async () => {
+                          const pin = window.prompt(
+                            `Masukkan PIN owner untuk menonaktifkan ${r[0]}. Riwayat stok tetap tersimpan.`,
+                          );
+                          if (!pin) return;
+                          if (!(await verifyOwnerPin(pin))) {
+                            window.alert("PIN owner tidak sesuai.");
+                            return;
+                          }
                           await deleteInventoryItem(r[5]);
-                          setRows((old) => old.filter((x) => x[5] !== r[5]));
+                          await reloadInventory();
                         }}
                       >
                         ×
@@ -3900,6 +3982,10 @@ function Inventory() {
                     form.get("purchasePrice") ? Number(form.get("purchasePrice")) : undefined,
                   );
                 } else {
+                  const ownerPin = String(form.get("ownerPin") || "");
+                  if (!(await verifyOwnerPin(ownerPin))) {
+                    throw new Error("PIN owner tidak sesuai.");
+                  }
                   await correctInventoryStock(
                     stockAction.row[5],
                     Number(form.get("quantity") || 0),
@@ -3945,6 +4031,19 @@ function Inventory() {
                 placeholder={stockAction.type === "purchase" ? "Nomor nota / supplier" : "Alasan selisih stok"}
               />
             </label>
+            {stockAction.type === "correction" && (
+              <label>
+                PIN owner
+                <input
+                  name="ownerPin"
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]{4,6}"
+                  required
+                  placeholder="4â€“6 angka"
+                />
+              </label>
+            )}
             {inventoryError && <p className="form-error">{inventoryError}</p>}
             <button type="submit">
               {stockAction.type === "purchase" ? "Tambah ke stok" : "Simpan koreksi"}
@@ -3975,7 +4074,8 @@ function Inventory() {
               const form = new FormData(event.currentTarget);
               const name = String(form.get("name"));
               const minimum = Number(form.get("minimum"));
-              const unit = String(form.get("unit"));
+              const purchaseUnit = String(form.get("purchaseUnit"));
+              const usageUnit = String(form.get("usageUnit"));
               const quantity = Number(
                 String(editingRow[2]).replace(",", ".").split(" ")[0],
               );
@@ -3987,28 +4087,24 @@ function Inventory() {
                     : editingRow[1] === "Siap jual"
                       ? "production_output"
                       : "raw_material",
-                purchaseUnit: unit,
-                usageUnit: unit,
-                unitsPerPurchase: 1,
+                purchaseUnit,
+                usageUnit,
+                unitsPerPurchase: Number(form.get("unitsPerPurchase") || 1),
                 stockQuantity: quantity,
                 minimumStock: minimum,
-                stockAlertEnabled: true,
-                allowNegativeStock: false,
+                purchasePrice: form.get("purchasePrice")
+                  ? Number(form.get("purchasePrice"))
+                  : undefined,
+                supplierName: String(form.get("supplierName") || ""),
+                sku: String(form.get("sku") || ""),
+                storageLocation: String(form.get("storageLocation") || ""),
+                shelfLifeDays: form.get("shelfLifeDays")
+                  ? Number(form.get("shelfLifeDays"))
+                  : undefined,
+                stockAlertEnabled: form.get("stockAlertEnabled") === "on",
+                allowNegativeStock: form.get("allowNegativeStock") === "on",
               });
-              setRows((current) =>
-                current.map((row) =>
-                  row[5] === editingRow[5]
-                    ? [
-                        name,
-                        editingRow[1],
-                        `${quantity} ${unit}`,
-                        `Minimum ${minimum}`,
-                        quantity <= minimum ? "low" : "good",
-                        editingRow[5],
-                      ]
-                    : row,
-                ),
-              );
+              await reloadInventory();
               setEditingRow(null);
             }}
           >
@@ -4018,10 +4114,10 @@ function Inventory() {
             </label>
             <div>
               <label>
-                Satuan
+                Satuan beli
                 <select
-                  name="unit"
-                  defaultValue={String(editingRow[2]).split(" ").at(-1)}
+                  name="purchaseUnit"
+                  defaultValue={editingRow[6]}
                 >
                   <option>pak</option>
                   <option>pouch</option>
@@ -4030,6 +4126,29 @@ function Inventory() {
                   <option>liter</option>
                   <option>porsi</option>
                 </select>
+              </label>
+              <label>
+                Satuan pemakaian/jual
+                <select name="usageUnit" defaultValue={editingRow[7]}>
+                  <option>pcs</option>
+                  <option>butir</option>
+                  <option>gram</option>
+                  <option>ml</option>
+                  <option>liter</option>
+                  <option>porsi</option>
+                </select>
+              </label>
+            </div>
+            <div>
+              <label>
+                Isi per satuan beli
+                <input
+                  name="unitsPerPurchase"
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  defaultValue={editingRow[8]}
+                />
               </label>
               <label>
                 Stok minimum
@@ -4042,6 +4161,58 @@ function Inventory() {
                     editingRow[3].match(/[\d,.]+/)?.[0]?.replace(",", ".") || 0,
                   )}
                 />
+              </label>
+            </div>
+            <div>
+              <label>
+                Harga beli <small>Opsional</small>
+                <input
+                  name="purchasePrice"
+                  type="number"
+                  min="0"
+                  defaultValue={editingRow[10]}
+                />
+              </label>
+              <label>
+                Supplier <small>Opsional</small>
+                <input name="supplierName" defaultValue={editingRow[11]} />
+              </label>
+            </div>
+            <div>
+              <label>
+                Kode/SKU <small>Opsional</small>
+                <input name="sku" defaultValue={editingRow[12]} />
+              </label>
+              <label>
+                Lokasi <small>Opsional</small>
+                <input name="storageLocation" defaultValue={editingRow[13]} />
+              </label>
+            </div>
+            <label>
+              Masa simpan (hari) <small>Opsional</small>
+              <input
+                name="shelfLifeDays"
+                type="number"
+                min="0"
+                defaultValue={editingRow[14]}
+              />
+            </label>
+            <div className="item-options">
+              <label>
+                <input
+                  name="stockAlertEnabled"
+                  type="checkbox"
+                  defaultChecked={editingRow[15] !== "false"}
+                />
+                Aktifkan peringatan stok
+              </label>
+              <label>
+                <input
+                  name="allowNegativeStock"
+                  type="checkbox"
+                  defaultChecked={editingRow[16] === "true"}
+                />
+                Izinkan stok negatif
               </label>
             </div>
             <button type="submit">Simpan perubahan</button>
@@ -4440,6 +4611,36 @@ function Drawer() {
               }
             }}
           >
+            <div className="shift-reconciliation">
+              <div>
+                <span>Modal awal</span>
+                <strong>{money(shift?.openingCash ?? 0)}</strong>
+              </div>
+              <div>
+                <span>Penjualan tunai</span>
+                <strong>{money(salesSummary.cashTotal)}</strong>
+              </div>
+              <div>
+                <span>QRIS / non-tunai</span>
+                <strong>{money(salesSummary.nonCashTotal)}</strong>
+              </div>
+              <div>
+                <span>Saldo drawer sistem</span>
+                <strong>{money(shift?.expectedCash ?? 0)}</strong>
+              </div>
+              <div>
+                <span>Dapat ditarik setelah sisakan modal</span>
+                <strong>
+                  {money(
+                    Math.max(
+                      0,
+                      (shift?.expectedCash ?? 0) -
+                        (shift?.openingCash ?? 350000),
+                    ),
+                  )}
+                </strong>
+              </div>
+            </div>
             <label>
               Uang fisik
               <input
@@ -4461,6 +4662,13 @@ function Drawer() {
               />
             </label>
             <button type="submit">Tutup dan rekonsiliasi shift</button>
+            <button
+              type="button"
+              className="outline-wide"
+              onClick={() => window.print()}
+            >
+              Cetak ringkasan sementara
+            </button>
           </form>
         </Modal>
       )}
@@ -5847,11 +6055,84 @@ export default function Home() {
   const [view, setView] = useState<View>("dashboard");
   const [business, setBusiness] = useState(defaultBusiness);
   const [collapsed, setCollapsed] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [operatorEmail, setOperatorEmail] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
   useEffect(() => {
     loadBusinessProfile(defaultBusiness)
       .then(setBusiness)
       .catch(() => undefined);
+    getOperatorSession()
+      .then((session) => setOperatorEmail(session?.user.email ?? null))
+      .finally(() => setSessionChecked(true));
   }, []);
+  if (!sessionChecked) {
+    return <div className="auth-loading">Memeriksa sesi operator...</div>;
+  }
+  if (!operatorEmail) {
+    return (
+      <main
+        className="auth-screen"
+        style={{ "--red": business.primaryColor } as CSSProperties}
+      >
+        <section className="auth-card">
+          <Brand business={business} />
+          <div>
+            <h1>Masuk ke kasir</h1>
+            <p>Gunakan akun operator yang terdaftar untuk melanjutkan.</p>
+          </div>
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setLoginBusy(true);
+              setLoginError("");
+              try {
+                const session = await signInOperator(loginEmail, loginPassword);
+                setOperatorEmail(session?.user.email ?? null);
+                setLoginPassword("");
+              } catch (error) {
+                setLoginError(
+                  error instanceof Error
+                    ? error.message
+                    : "Login gagal. Silakan coba lagi.",
+                );
+              } finally {
+                setLoginBusy(false);
+              }
+            }}
+          >
+            <label>
+              Email operator
+              <input
+                type="email"
+                required
+                autoComplete="username"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+              />
+            </label>
+            {loginError && <p className="auth-error">{loginError}</p>}
+            <button disabled={loginBusy}>
+              {loginBusy ? "Memproses..." : "Masuk"}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
   return (
     <div
       className={`app-shell ${collapsed ? "sidebar-is-collapsed" : ""}`}
@@ -5868,6 +6149,11 @@ export default function Home() {
         business={business}
         collapsed={collapsed}
         setCollapsed={setCollapsed}
+        onLogout={async () => {
+          await signOutOperator();
+          setOperatorEmail(null);
+          setView("dashboard");
+        }}
       />
       <section className="workspace">
         {view === "dashboard" && (

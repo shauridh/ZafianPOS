@@ -228,6 +228,48 @@ export async function createInventoryItem(draft: InventoryDraft) {
   const created = { ...draft, id: crypto.randomUUID() };
   writeLocal(INVENTORY_KEY, [created, ...current]);
   if (!supabase) return created;
+  const { data: inactive } = await supabase
+    .from("inventory_items")
+    .select("id")
+    .eq("outlet_id", outletId)
+    .ilike("name", draft.name.trim())
+    .eq("is_active", false)
+    .maybeSingle();
+  if (inactive) {
+    const { error: reactivateError } = await supabase
+      .from("inventory_items")
+      .update({
+        name: draft.name.trim(),
+        sku: draft.sku || null,
+        kind: draft.kind,
+        supplier_name: draft.supplierName || null,
+        purchase_price: draft.purchasePrice ?? null,
+        purchase_unit: draft.purchaseUnit,
+        usage_unit: draft.usageUnit,
+        units_per_purchase: draft.unitsPerPurchase,
+        stock_quantity: 0,
+        minimum_stock: draft.minimumStock,
+        shelf_life_days: draft.shelfLifeDays ?? null,
+        storage_location: draft.storageLocation || null,
+        stock_alert_enabled: draft.stockAlertEnabled,
+        allow_negative_stock: draft.allowNegativeStock,
+        is_active: true,
+      })
+      .eq("id", inactive.id)
+      .eq("outlet_id", outletId);
+    if (reactivateError) throw reactivateError;
+    if (draft.stockQuantity > 0) {
+      const { error: stockError } = await supabase.rpc("record_inventory_stock", {
+        p_inventory_item_id: inactive.id,
+        p_operation: "opening",
+        p_quantity: draft.stockQuantity,
+        p_note: "Stok awal saat bahan diaktifkan kembali",
+        p_purchase_price: draft.purchasePrice ?? null,
+      });
+      if (stockError) throw stockError;
+    }
+    return { ...draft, id: inactive.id };
+  }
   const { data, error } = await supabase
     .from("inventory_items")
     .insert({
@@ -1472,17 +1514,36 @@ export type ReportDataset = {
   columns: string[];
   rows: string[][];
 };
-function reportStart(period: string) {
-  if (/^\d{4}-\d{2}-\d{2}/.test(period))
-    return new Date(`${period.slice(0, 10)}T00:00:00`).toISOString();
-  const date = new Date();
-  if (period === "All time") return undefined;
-  if (period === "Kemarin") date.setDate(date.getDate() - 1);
-  else if (period === "Minggu ini")
-    date.setDate(date.getDate() - date.getDay() + 1);
-  else if (period === "Bulan ini") date.setDate(1);
-  date.setHours(0, 0, 0, 0);
-  return date.toISOString();
+function reportRange(period: string) {
+  if (period === "All time") return {};
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  const customDates = period.match(/\d{4}-\d{2}-\d{2}/g);
+  if (customDates?.length) {
+    const customStart = new Date(`${customDates[0]}T00:00:00`);
+    const customEnd = new Date(
+      `${customDates[customDates.length - 1]}T00:00:00`,
+    );
+    customEnd.setDate(customEnd.getDate() + 1);
+    return { start: customStart.toISOString(), end: customEnd.toISOString() };
+  }
+  if (period === "Kemarin") {
+    start.setDate(start.getDate() - 1);
+  } else if (period === "Minggu ini") {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 7);
+    return { start: start.toISOString(), end: end.toISOString() };
+  } else if (period === "Bulan ini") {
+    start.setDate(1);
+    end.setTime(start.getTime());
+    end.setMonth(end.getMonth() + 1);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
+  end.setDate(end.getDate() + (period === "Kemarin" ? 0 : 1));
+  return { start: start.toISOString(), end: end.toISOString() };
 }
 export async function loadReportDataset(
   tab: string,
@@ -1490,7 +1551,7 @@ export async function loadReportDataset(
 ): Promise<ReportDataset | null> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return null;
-  const start = reportStart(period);
+  const { start, end } = reportRange(period);
   if (tab === "Penjualan" || tab === "Produk") {
     let query = supabase
       .from("sales")
@@ -1501,17 +1562,19 @@ export async function loadReportDataset(
       .order("created_at", { ascending: false })
       .limit(500);
     if (start) query = query.gte("created_at", start);
+    if (end) query = query.lt("created_at", end);
     const { data, error } = await query;
     if (error || !data) return null;
     if (tab === "Penjualan") {
-      const total = data.reduce((sum, row) => sum + Number(row.total), 0);
+      const completed = data.filter((row) => row.status === "completed");
+      const total = completed.reduce((sum, row) => sum + Number(row.total), 0);
       return {
         kpis: [
           ["Penjualan bersih", String(total), "Data Supabase"],
-          ["Jumlah transaksi", String(data.length), "Transaksi"],
+          ["Jumlah transaksi", String(completed.length), "Transaksi selesai"],
           [
             "Rata-rata",
-            String(data.length ? Math.round(total / data.length) : 0),
+            String(completed.length ? Math.round(total / completed.length) : 0),
             "Per transaksi",
           ],
           [
@@ -1534,7 +1597,7 @@ export async function loadReportDataset(
       };
     }
     const totals = new Map<string, { qty: number; total: number }>();
-    for (const sale of data)
+    for (const sale of data.filter((row) => row.status === "completed"))
       for (const item of sale.sale_items ?? []) {
         const value = totals.get(item.product_name) ?? { qty: 0, total: 0 };
         value.qty += Number(item.quantity);
@@ -1575,6 +1638,7 @@ export async function loadReportDataset(
       .order("completed_at", { ascending: false })
       .limit(250);
     if (start) query = query.gte("completed_at", start);
+    if (end) query = query.lt("completed_at", end);
     const { data, error } = await query;
     if (error || !data) return null;
     return {
@@ -1660,28 +1724,38 @@ export async function loadReportDataset(
     .eq("outlet_id", outletId)
     .order("opened_at", { ascending: false })
     .limit(100);
-  if (error || !data) return null;
+  let filtered = data;
+  if (start || end) {
+    filtered = (data ?? []).filter((row) => {
+      const time = new Date(row.opened_at).getTime();
+      return (
+        (!start || time >= new Date(start).getTime()) &&
+        (!end || time < new Date(end).getTime())
+      );
+    });
+  }
+  if (error || !filtered) return null;
   return {
     kpis: [
-      ["Jumlah shift", String(data.length), "Periode"],
+      ["Jumlah shift", String(filtered.length), "Periode"],
       [
         "Shift aktif",
-        String(data.filter((row) => row.status === "open").length),
+        String(filtered.filter((row) => row.status === "open").length),
         "Saat ini",
       ],
       [
         "Modal awal",
-        String(data.reduce((sum, row) => sum + Number(row.opening_cash), 0)),
+        String(filtered.reduce((sum, row) => sum + Number(row.opening_cash), 0)),
         "Total",
       ],
       [
         "Selisih",
-        String(data.reduce((sum, row) => sum + Number(row.difference ?? 0), 0)),
+        String(filtered.reduce((sum, row) => sum + Number(row.difference ?? 0), 0)),
         "Drawer",
       ],
     ],
     columns: ["Dibuka", "Ditutup", "Modal", "Kas akhir", "Selisih"],
-    rows: data.map((row) => [
+    rows: filtered.map((row) => [
       new Date(row.opened_at).toLocaleString("id-ID"),
       row.closed_at ? new Date(row.closed_at).toLocaleString("id-ID") : "Aktif",
       String(row.opening_cash),
