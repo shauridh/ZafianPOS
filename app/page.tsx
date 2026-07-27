@@ -2650,11 +2650,16 @@ function Production() {
             </div>
             <div className="production-menu-actions">
               {menu.id && (
-                <button
-                  onClick={() => setMenuModal({ mode: "edit", id: menu.id })}
-                >
-                  Edit menu
-                </button>
+                <>
+                  <button
+                    onClick={() => setMenuModal({ mode: "edit", id: menu.id })}
+                  >
+                    Edit menu
+                  </button>
+                  <button onClick={() => setInputModal({ mode: "add" })}>
+                    Atur bahan menu
+                  </button>
+                </>
               )}
               {productionMenus.length > 1 && (
                 <button
@@ -2692,12 +2697,6 @@ function Production() {
             <div className="recipe-preview">
               <div className="recipe-preview-head">
                 <h3>Kebutuhan otomatis</h3>
-                <button
-                  disabled={!menu.id}
-                  onClick={() => setInputModal({ mode: "add" })}
-                >
-                  <Plus /> Bahan
-                </button>
               </div>
               {activeInputs.map((item) => (
                 <div key={item.id}>
@@ -2713,30 +2712,11 @@ function Production() {
                     })}{" "}
                     {item.unit}
                   </strong>
-                  <span className="inline-row-actions">
-                    <button
-                      onClick={() =>
-                        setInputModal({ mode: "edit", id: item.id })
-                      }
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await deleteProductionInput(item.id);
-                        setInputs((current) =>
-                          current.filter((entry) => entry.id !== item.id),
-                        );
-                      }}
-                    >
-                      Hapus
-                    </button>
-                  </span>
                 </div>
               ))}
               {!activeInputs.length && (
                 <p className="form-error">
-                  Tambahkan minimal satu bahan sebelum produksi.
+                  Atur bahan terlebih dahulu melalui menu produksi.
                 </p>
               )}
               <div>
@@ -3029,7 +3009,7 @@ function Production() {
           initial={outputs.find((item) => item.id === outputModal.id)}
           close={() => setOutputModal(null)}
           inventory={inventoryOptions.filter(
-            (item) => item.kind === "production_output",
+            () => true,
           )}
           save={async (value) => {
             const id = await saveProductionOutput(
@@ -3311,7 +3291,7 @@ function ProductionInputModal({
             <option value="">Pilih bahan persediaan</option>
             {inventory.map((item) => (
               <option key={item.id} value={item.name}>
-                {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+                {item.name} — stok {item.stockQuantity} {item.usageUnit}
               </option>
             ))}
           </select>
@@ -3401,14 +3381,13 @@ function ProductionOutputModal({
             <option value="">Pilih stok etalase</option>
             {inventory.map((item) => (
               <option key={item.id} value={item.name}>
-                {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+                {item.name} — stok {item.stockQuantity} {item.usageUnit}
               </option>
             ))}
           </select>
           {!inventory.length && (
             <small>
-              Buat item berkelompok â€œHasil produksiâ€ di Persediaan terlebih
-              dahulu.
+              Buat item hasil di Persediaan terlebih dahulu.
             </small>
           )}
         </label>
@@ -3506,7 +3485,7 @@ function ProductionMenuModal({
                 <option value="">Pilih dari Persediaan</option>
                 {inventory.map((item) => (
                   <option key={item.id} value={item.name}>
-                    {item.name} â€” stok {item.stockQuantity} {item.usageUnit}
+                    {item.name} — stok {item.stockQuantity} {item.usageUnit}
                   </option>
                 ))}
               </select>
@@ -3547,7 +3526,6 @@ function Inventory() {
   >([]);
   const [inventoryError, setInventoryError] = useState("");
   const [stockName, setStockName] = useState("");
-  const [inventoryFilter, setInventoryFilter] = useState("Semua");
   const [inventorySearch, setInventorySearch] = useState("");
   const [editingRow, setEditingRow] = useState<string[] | null>(null);
   const reloadInventory = async () => {
@@ -3589,10 +3567,8 @@ function Inventory() {
   useEffect(() => {
     reloadInventory().catch(() => undefined);
   }, []);
-  const visibleRows = rows.filter(
-    (row) =>
-      (inventoryFilter === "Semua" || row[1] === inventoryFilter) &&
-      row[0].toLowerCase().includes(inventorySearch.toLowerCase()),
+  const visibleRows = rows.filter((row) =>
+    row[0].toLowerCase().includes(inventorySearch.toLowerCase()),
   );
   return (
     <>
@@ -3631,19 +3607,6 @@ function Inventory() {
         </div>
         <section className="panel">
           <div className="inventory-toolbar">
-            <div className="categories">
-              {["Semua", "Bahan baku", "Siap jual", "Pendamping"].map(
-                (item) => (
-                  <button
-                    key={item}
-                    className={inventoryFilter === item ? "active" : ""}
-                    onClick={() => setInventoryFilter(item)}
-                  >
-                    {item}
-                  </button>
-                ),
-              )}
-            </div>
             <div>
               <label>
                 <Search />
@@ -3665,7 +3628,6 @@ function Inventory() {
             <thead>
               <tr>
                 <th>Nama item</th>
-                <th>Kelompok</th>
                 <th>Stok tersedia</th>
                 <th>Keterangan</th>
                 <th>Status</th>
@@ -3679,12 +3641,11 @@ function Inventory() {
                     <span className="table-item-icon">◫</span>
                     <strong>{r[0]}</strong>
                   </td>
-                  <td>{r[1]}</td>
                   <td>
                     <strong>{r[2]}</strong>
                     {Number(r[8]) > 1 && (
                       <small className="stock-conversion">
-                        â‰ˆ {(Number(r[9]) / Number(r[8])).toLocaleString("id-ID", {
+                        ≈ {(Number(r[9]) / Number(r[8])).toLocaleString("id-ID", {
                           maximumFractionDigits: 2,
                         })}{" "}
                         {r[6]}
@@ -3749,7 +3710,7 @@ function Inventory() {
               ))}
               {!visibleRows.length && (
                 <tr>
-                  <td colSpan={6}>Belum ada bahan atau persediaan.</td>
+                  <td colSpan={5}>Belum ada bahan atau persediaan.</td>
                 </tr>
               )}
             </tbody>
@@ -3820,7 +3781,7 @@ function Inventory() {
               await createInventoryItem({
                 name: stockName,
                 sku: String(form.get("sku") || ""),
-                kind: String(form.get("kind")) as "raw_material",
+                kind: "raw_material",
                 supplierName: String(form.get("supplierName") || ""),
                 purchasePrice: form.get("purchasePrice")
                   ? Number(form.get("purchasePrice"))
@@ -3858,15 +3819,6 @@ function Inventory() {
               </label>
             </div>
             <div>
-              <label>
-                Kelompok
-                <select name="kind">
-                  <option value="raw_material">Bahan baku</option>
-                  <option value="production_output">Hasil produksi</option>
-                  <option value="sales_supply">Pendamping</option>
-                  <option value="direct_sale">Barang langsung jual</option>
-                </select>
-              </label>
               <label>
                 Supplier <small>Opsional</small>
                 <input
@@ -4057,7 +4009,7 @@ function Inventory() {
                   inputMode="numeric"
                   pattern="[0-9]{4,6}"
                   required
-                  placeholder="4â€“6 angka"
+                  placeholder="4–6 angka"
                 />
               </label>
             )}
@@ -4744,7 +4696,7 @@ function Reports() {
         ["Aman", "0", "Belum ada data"],
         ["Negatif", "0", "Belum ada data"],
       ],
-      columns: ["Item", "Kelompok", "Stok", "Minimum", "Status"],
+      columns: ["Item", "Stok", "Minimum", "Status"],
       rows: [],
     },
     Kas: {

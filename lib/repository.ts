@@ -1704,10 +1704,9 @@ export async function loadReportDataset(
           "Item",
         ],
       ],
-      columns: ["Item", "Kelompok", "Stok", "Minimum", "Status"],
+      columns: ["Item", "Stok", "Minimum", "Status"],
       rows: data.map((row) => [
         row.name,
-        row.kind,
         `${row.stock_quantity} ${row.usage_unit}`,
         String(row.minimum_stock),
         Number(row.stock_quantity) <= Number(row.minimum_stock)
@@ -1775,6 +1774,26 @@ export async function loadActivityLogs() {
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) return [];
+  const actionLabels: Record<string, string> = {
+    inventory_opening: "Stok awal dicatat",
+    inventory_correction: "Stok dikoreksi",
+    inventory_purchase: "Pembelian bahan dicatat",
+    "sale.completed": "Transaksi selesai",
+    "sale.cancelled": "Transaksi dibatalkan",
+    "production.completed": "Produksi selesai",
+    "cash_shift.opened": "Kasir dibuka",
+    "cash_shift.closed": "Kasir ditutup",
+    "owner_pin.updated": "PIN owner diperbarui",
+  };
+  const detailLabels: Record<string, string> = {
+    quantity_delta: "perubahan",
+    stock_quantity: "saldo stok",
+    total: "total",
+    payment_method: "pembayaran",
+    receipt_number: "struk",
+    batch_number: "batch",
+    multiplier: "jumlah batch",
+  };
   return (data ?? []).map((row) => ({
     id: String(row.id),
     time: new Date(row.created_at).toLocaleTimeString("id-ID", {
@@ -1784,8 +1803,13 @@ export async function loadActivityLogs() {
     operator: Array.isArray(row.operators)
       ? (row.operators[0]?.name ?? "Sistem")
       : ((row.operators as { name?: string } | null)?.name ?? "Sistem"),
-    action: row.action,
-    detail: JSON.stringify(row.after_data ?? {}),
+    action: actionLabels[row.action] ?? row.action.replaceAll("_", " "),
+    detail: Object.entries(
+      (row.after_data ?? {}) as Record<string, unknown>,
+    )
+      .filter(([key]) => key in detailLabels)
+      .map(([key, value]) => `${detailLabels[key]}: ${String(value)}`)
+      .join(" • ") || "Tidak ada keterangan tambahan",
     category: String(row.entity_type ?? "Aktivitas"),
   }));
 }
