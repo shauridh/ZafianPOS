@@ -2086,42 +2086,50 @@ function MenuManagement() {
             )}
             <button
               onClick={async () => {
-                if (newName.trim()) {
-                  if (modal === "category") {
-                    await createCategory(newName, categories);
-                    setCategories((c) => [...c, newName]);
-                  } else {
-                    const price = Number(menuPrice || 0);
-                    const productId = await createProduct({
-                      name: newName,
-                      salePrice: price,
-                      categoryName: menuCategory,
-                      imagePath: menuImage,
-                    });
-                    if (draftComponents.length) {
-                      await saveProductComponents(productId, draftComponents);
-                    }
-                    setProducts((p) => [
-                      ...p,
-                      {
-                        id: productId,
-                        name: newName,
-                        note: "Menu baru",
-                        price,
-                        icon: "🍽️",
-                        color: "cream",
-                        image: menuImage || undefined,
-                        category: menuCategory,
-                      },
-                    ]);
-                  }
-                }
-                setNewName("");
-                setMenuImage("");
-                setMenuPrice("");
                 setImageError("");
-                setDraftComponents([]);
-                setModal(null);
+                try {
+                  if (newName.trim()) {
+                    if (modal === "category") {
+                      await createCategory(newName, categories);
+                      setCategories((c) => [...c, newName]);
+                    } else {
+                      const price = Number(menuPrice || 0);
+                      const productId = await createProduct({
+                        name: newName,
+                        salePrice: price,
+                        categoryName: menuCategory,
+                        imagePath: menuImage,
+                      });
+                      if (draftComponents.length) {
+                        await saveProductComponents(productId, draftComponents);
+                      }
+                      setProducts((p) => [
+                        ...p,
+                        {
+                          id: productId,
+                          name: newName,
+                          note: "Menu baru",
+                          price,
+                          icon: "🍽️",
+                          color: "cream",
+                          image: menuImage || undefined,
+                          category: menuCategory,
+                        },
+                      ]);
+                    }
+                  }
+                  setNewName("");
+                  setMenuImage("");
+                  setMenuPrice("");
+                  setDraftComponents([]);
+                  setModal(null);
+                } catch (error) {
+                  setImageError(
+                    error instanceof Error
+                      ? error.message
+                      : "Data gagal disimpan.",
+                  );
+                }
               }}
             >
               Simpan {modal === "menu" ? "menu" : "kategori"}
@@ -3848,31 +3856,40 @@ function Inventory() {
             className="crud-form stock-crud"
             onSubmit={async (e) => {
               e.preventDefault();
+              setInventoryError("");
               const form = new FormData(e.currentTarget);
               const stock = Number(form.get("stockQuantity") || 0);
-              await createInventoryItem({
-                name: stockName,
-                sku: String(form.get("sku") || ""),
-                kind: "raw_material",
-                supplierName: String(form.get("supplierName") || ""),
-                purchasePrice: form.get("purchasePrice")
-                  ? Number(form.get("purchasePrice"))
-                  : undefined,
-                purchaseUnit: String(form.get("purchaseUnit")),
-                usageUnit: String(form.get("usageUnit")),
-                unitsPerPurchase: Number(form.get("unitsPerPurchase") || 1),
-                stockQuantity: stock,
-                minimumStock: Number(form.get("minimumStock") || 0),
-                shelfLifeDays: form.get("shelfLifeDays")
-                  ? Number(form.get("shelfLifeDays"))
-                  : undefined,
-                storageLocation: String(form.get("storageLocation") || ""),
-                stockAlertEnabled: form.get("stockAlertEnabled") === "on",
-                allowNegativeStock: form.get("allowNegativeStock") === "on",
-              });
-              await reloadInventory();
-              setStockName("");
-              setStockModal(false);
+              try {
+                await createInventoryItem({
+                  name: stockName,
+                  sku: String(form.get("sku") || ""),
+                  kind: "raw_material",
+                  supplierName: String(form.get("supplierName") || ""),
+                  purchasePrice: form.get("purchasePrice")
+                    ? Number(form.get("purchasePrice"))
+                    : undefined,
+                  purchaseUnit: String(form.get("purchaseUnit")),
+                  usageUnit: String(form.get("usageUnit")),
+                  unitsPerPurchase: Number(form.get("unitsPerPurchase") || 1),
+                  stockQuantity: stock,
+                  minimumStock: Number(form.get("minimumStock") || 0),
+                  shelfLifeDays: form.get("shelfLifeDays")
+                    ? Number(form.get("shelfLifeDays"))
+                    : undefined,
+                  storageLocation: String(form.get("storageLocation") || ""),
+                  stockAlertEnabled: form.get("stockAlertEnabled") === "on",
+                  allowNegativeStock: form.get("allowNegativeStock") === "on",
+                });
+                await reloadInventory();
+                setStockName("");
+                setStockModal(false);
+              } catch (error) {
+                setInventoryError(
+                  error instanceof Error
+                    ? error.message
+                    : "Bahan gagal disimpan.",
+                );
+              }
             }}
           >
             <div>
@@ -3991,6 +4008,9 @@ function Inventory() {
                 Izinkan stok negatif untuk bahan ini
               </label>
             </div>
+            {inventoryError && (
+              <p className="form-error">{inventoryError}</p>
+            )}
             <button type="submit">Simpan bahan</button>
           </form>
         </Modal>

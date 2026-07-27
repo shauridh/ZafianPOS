@@ -228,48 +228,6 @@ export async function createInventoryItem(draft: InventoryDraft) {
   const created = { ...draft, id: crypto.randomUUID() };
   writeLocal(INVENTORY_KEY, [created, ...current]);
   if (!supabase) return created;
-  const { data: inactive } = await supabase
-    .from("inventory_items")
-    .select("id")
-    .eq("outlet_id", outletId)
-    .ilike("name", draft.name.trim())
-    .eq("is_active", false)
-    .maybeSingle();
-  if (inactive) {
-    const { error: reactivateError } = await supabase
-      .from("inventory_items")
-      .update({
-        name: draft.name.trim(),
-        sku: draft.sku || null,
-        kind: draft.kind,
-        supplier_name: draft.supplierName || null,
-        purchase_price: draft.purchasePrice ?? null,
-        purchase_unit: draft.purchaseUnit,
-        usage_unit: draft.usageUnit,
-        units_per_purchase: draft.unitsPerPurchase,
-        stock_quantity: 0,
-        minimum_stock: draft.minimumStock,
-        shelf_life_days: draft.shelfLifeDays ?? null,
-        storage_location: draft.storageLocation || null,
-        stock_alert_enabled: draft.stockAlertEnabled,
-        allow_negative_stock: draft.allowNegativeStock,
-        is_active: true,
-      })
-      .eq("id", inactive.id)
-      .eq("outlet_id", outletId);
-    if (reactivateError) throw reactivateError;
-    if (draft.stockQuantity > 0) {
-      const { error: stockError } = await supabase.rpc("record_inventory_stock", {
-        p_inventory_item_id: inactive.id,
-        p_operation: "opening",
-        p_quantity: draft.stockQuantity,
-        p_note: "Stok awal saat bahan diaktifkan kembali",
-        p_purchase_price: draft.purchasePrice ?? null,
-      });
-      if (stockError) throw stockError;
-    }
-    return { ...draft, id: inactive.id };
-  }
   const { data, error } = await supabase
     .from("inventory_items")
     .insert({
@@ -291,7 +249,13 @@ export async function createInventoryItem(draft: InventoryDraft) {
     })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) {
+    throw new Error(
+      error.code === "23505"
+        ? "Bahan dengan nama atau SKU tersebut masih ada atau sedang dinonaktifkan."
+        : "Bahan gagal disimpan.",
+    );
+  }
   if (draft.stockQuantity > 0) {
     const { error: stockError } = await supabase.rpc("record_inventory_stock", {
       p_inventory_item_id: data.id,
@@ -418,9 +382,10 @@ export async function deleteInventoryItem(id: string) {
   );
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(id)) return;
+  const deletedName = `deleted-${id}-${Date.now()}`;
   const { error } = await supabase
     .from("inventory_items")
-    .update({ is_active: false })
+    .update({ name: deletedName, sku: null, is_active: false })
     .eq("id", id)
     .eq("outlet_id", outletId);
   if (error) throw error;
@@ -450,7 +415,13 @@ export async function createCategory(name: string, current: string[]) {
     name,
     sort_order: current.length + 1,
   });
-  if (error) return;
+  if (error) {
+    throw new Error(
+      error.code === "23505"
+        ? "Kategori dengan nama tersebut masih ada atau sedang dinonaktifkan."
+        : "Kategori gagal disimpan.",
+    );
+  }
 }
 
 export async function renameCategory(oldName: string, newName: string) {
@@ -467,11 +438,22 @@ export async function renameCategory(oldName: string, newName: string) {
 export async function deleteCategory(name: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return;
+  const { data: category, error: lookupError } = await supabase
+    .from("menu_categories")
+    .select("id")
+    .eq("outlet_id", outletId)
+    .eq("name", name)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  if (!category) return;
   const { error } = await supabase
     .from("menu_categories")
-    .update({ is_active: false })
+    .update({
+      name: `deleted-${category.id}-${Date.now()}`,
+      is_active: false,
+    })
     .eq("outlet_id", outletId)
-    .eq("name", name);
+    .eq("id", category.id);
   if (error) throw error;
 }
 
@@ -573,7 +555,13 @@ export async function createProduct(draft: ProductDraft) {
     })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) {
+    throw new Error(
+      error.code === "23505"
+        ? "Menu dengan nama tersebut masih ada atau sedang dinonaktifkan."
+        : "Menu gagal disimpan.",
+    );
+  }
   return data.id as string;
 }
 
@@ -620,7 +608,10 @@ export async function deleteProduct(id: string) {
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(id)) return;
   const { error } = await supabase
     .from("products")
-    .update({ is_active: false })
+    .update({
+      name: `deleted-${id}-${Date.now()}`,
+      is_active: false,
+    })
     .eq("id", id)
     .eq("outlet_id", outletId);
   if (error) throw error;
@@ -940,40 +931,24 @@ export async function saveProductionMenu(
       .eq("outlet_id", outletId);
     if (error) throw error;
   } else {
-    const { data: existing, error: lookupError } = await supabase
+    const { data, error } = await supabase
       .from("production_recipes")
+      .insert({
+        outlet_id: outletId,
+        name: value.name.trim(),
+        batch_unit: value.inputUnit,
+        default_batch_size: 1,
+      })
       .select("id")
-      .eq("outlet_id", outletId)
-      .ilike("name", value.name.trim())
-      .maybeSingle();
-    if (lookupError) throw lookupError;
-    if (existing?.id) {
-      const { error } = await supabase
-        .from("production_recipes")
-        .update({
-          name: value.name.trim(),
-          batch_unit: value.inputUnit,
-          default_batch_size: 1,
-          is_active: true,
-        })
-        .eq("id", existing.id)
-        .eq("outlet_id", outletId);
-      if (error) throw error;
-      recipeId = existing.id as string;
-    } else {
-      const { data, error } = await supabase
-        .from("production_recipes")
-        .insert({
-          outlet_id: outletId,
-          name: value.name.trim(),
-          batch_unit: value.inputUnit,
-          default_batch_size: 1,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      recipeId = data.id as string;
+      .single();
+    if (error) {
+      throw new Error(
+        error.code === "23505"
+          ? "Menu produksi dengan nama tersebut masih ada atau sedang dinonaktifkan."
+          : "Menu produksi gagal disimpan.",
+      );
     }
+    recipeId = data.id as string;
   }
   if (!id) {
     await saveProductionInput(recipeId!, {
@@ -1038,7 +1013,10 @@ export async function deleteProductionMenu(id: string) {
   if (!supabase || !/^[0-9a-f-]{36}$/i.test(id)) return;
   const { error } = await supabase
     .from("production_recipes")
-    .update({ is_active: false })
+    .update({
+      name: `deleted-${id}-${Date.now()}`,
+      is_active: false,
+    })
     .eq("id", id)
     .eq("outlet_id", outletId);
   if (error) throw error;
